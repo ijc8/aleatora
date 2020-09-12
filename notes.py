@@ -69,8 +69,8 @@ class Stream:
                     raise IndexError("stream index out of range")
             self.gen.gi_frame.f_locals.update(f_locals)
             return value
-        if isinstance(subscript, slice):
-            print()
+        if isinstance(index, slice):
+            pass  # abandoned due to realizations below
 
 def test2():
     x = 0
@@ -80,3 +80,27 @@ def test2():
 
 # Welp. Nevermind. The frame object (gen.gi_frame) can't actually be manipulated - not even f_locals.
 # So much for that plan.
+
+# Here's a reason to want 'random-access' replayability (i.e. something beyond generator factories):
+import random
+def example():
+    yield -1
+    if random.random < 0.5:
+        print("A is happening!")
+        while True:
+            yield random.random()
+    else:
+        while True:
+            yield -random.random()
+
+# A continuation-based approach could allow you to cut off the beginning and still get consistent behavior on replays,
+# because the decision was made 'in the past' - that is, earlier in the stream.
+# This is impossible in a generator-based system because it can only replay from the 'start', which means remaking the decision.
+# More generally, the generator-factory approach violates the notion that a stream should be one item... followed by another stream.
+# This is because there is no way to make another factory for the rest of the stream.
+# You could fake it by returning a modified factory that drops the first N elements, but this would remake all the earlier decisions,
+# and re-perform all of the earlier side effects.
+
+# You can't convert a generator to a stream in general, because of the issues described above.
+# but you CAN easily convert a generator to a memoized stream (in which case iterations only execute once; replay is just from memory).
+# This is totally fine if you don't need nondeterministic replay (as when the generator is deterministic and doesn't depend on other streams).
