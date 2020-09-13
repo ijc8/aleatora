@@ -2,10 +2,24 @@ import math
 import numpy as np
 import pyaudio
 import time
+import operator
+import atexit
 
 
 SAMPLE_RATE = 44100
 
+
+def make_stream_op(op, reversed=False):
+    if reversed:
+        def fn(self, other):
+            # No need to handle the Stream case, because it will be handled by the non-reversed version.
+            return self.map(lambda v: op(other, v))
+        return fn
+    def fn(self, other):
+        if isinstance(other, Stream):
+            return stream_zip(self, other).map(lambda p: op(*p))
+        return self.map(lambda v: op(v, other))
+    return fn
 
 class Stream:
     def __init__(self, fn):
@@ -14,11 +28,47 @@ class Stream:
     def __call__(self):
         return self.fn()
 
+    def __iter__(self):
+        return StreamIterator(self)
+
+    ## Operators
+    # `a >> b` means a followed by b. (In tape terms, splicing.)
     def __rshift__(self, other):
         return concat(self, other)
 
-    def __iter__(self):
-        return StreamIterator(self)
+    # `a >>= b` is the bind operator. For this operator, b is not a stream, but a function that returns a stream.
+    def __irshift__(self, other):
+        return bind(self, other)
+
+    # The remaining operators behave differently with streams and other types.
+    # If both arguments are streams, these operators will perform the operation element-wise along both streams.
+    # If one argument is not a stream, the operators perform the same option (e.g. `* 2`) to each element along the one stream.
+
+    # `a + b` means a and b at the same time. (In tape terms, mixing two tapes down to one.)
+    # Unlike *, /, etc., this operator keeps going until *both* streams have ended.
+    def __add__(self, other):
+        if isinstance(other, Stream):
+            return stream_add(self, other)
+        return self.map(lambda v: v + other)
+
+    __radd__ = make_stream_op(operator.add, reversed=True)
+
+    # `a * b` means a amplitude-modulated by b (order doesn't matter).
+    # I don't know if this has a equivalent in tape, but in electronics terms this is a mixer.
+    __mul__ = make_stream_op(operator.mul)
+    __rmul__ = make_stream_op(operator.mul, reversed=True)
+    __truediv__ = make_stream_op(operator.truediv)
+    __rtruediv__ = make_stream_op(operator.truediv, reversed=True)
+    __floordiv__ = make_stream_op(operator.floordiv)
+    __rfloordiv__ = make_stream_op(operator.floordiv, reversed=True)
+
+    # `a % b` and `a ** b` are perhaps a little exotic, but I don't see any reason to exclude them.
+    __mod__ = make_stream_op(operator.mod)
+    __rmod__ = make_stream_op(operator.mod, reversed=True)
+    __pow__ = make_stream_op(operator.pow)
+    __rpow__ = make_stream_op(operator.pow, reversed=True)
+
+    # The bitwise operators so that I may repurpose them, as in the case of `>>` above.
 
     def __getitem__(self, index):
         if isinstance(index, int):
@@ -64,13 +114,23 @@ def stream(f):
 
 # The basics.
 @stream
-def concat(a, b):
+def concat(stream_a, stream_b):
     def closure():
-        result = a()
+        result = stream_a()
         if isinstance(result, Return):
-            return b()
+            return stream_b()
         value, next_a = result
-        return (value, concat(next_a, b))
+        return (value, concat(next_a, stream_b))
+    return closure
+
+@stream
+def bind(stream_a, stream_fn_b):
+    def closure():
+        result = stream_a()
+        if isinstance(result, Return):
+            return stream_fn_b(result.value)()
+        value, next_a = result
+        return (value, bind(next_a, stream_fn_b))
     return closure
 
 @stream
@@ -89,6 +149,31 @@ def stream_map(stream, fn):
             return result
         value, next_stream = result
         return (fn(value), stream_map(next_stream, fn))
+    return closure
+
+@stream
+def stream_zip(*streams):
+    def closure():
+        results = [stream() for stream in streams]
+        if any(isinstance(result, Return) for result in results):
+            return Return(results)
+        values = [result[0] for result in results]
+        next_streams = [result[1] for result in results]
+        return (values, stream_zip(*next_streams))
+    return closure
+
+@stream
+def stream_add(stream_a, stream_b):
+    def closure():
+        result_a = stream_a()
+        result_b = stream_b()
+        if isinstance(result_a, Return):
+            return result_b
+        if isinstance(result_b, Return):
+            return result_a
+        value_a, next_a = result_a
+        value_b, next_b = result_b
+        return (value_a + value_b, stream_add(next_a, next_b))
     return closure
 
 @stream
@@ -177,6 +262,7 @@ def convert_time(time):
 def callback(in_data, frame_count, time_info, status):
         audio = np.zeros(frame_count, dtype=np.float32)
         flag = pyaudio.paContinue
+        samples = callback.samples
         for i, sample in zip(range(frame_count), callback.samples):
             audio[i] = sample
         if i < frame_count - 1:
@@ -211,6 +297,8 @@ def run(composition):
 
 # Non-blocking version: setup() and play() are a pair. Works with the REPL.
 def setup():
+    if setup.done:
+        return
     callback.samples = silence
     buffer_size = 1024
     p = pyaudio.PyAudio()
@@ -221,12 +309,28 @@ def setup():
                     output=True,
                     stream_callback=callback)
     stream.start_stream()
+    setup.done = True
+
+    def cleanup():
+        # Seems like pyaudio should already do this, via e.g. stream.__del__ and p.__del___...
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+    atexit.register(cleanup)
+
+setup.done = False
 
 def play(composition):
     callback.samples = iter(composition >> silence)
 
 
 # Example:
-#
-# setup()
-# play(osc(440)[:1.0] >> osc(660)[:1.0] >> osc(880)[:1.0])
+def demo0():
+    setup()
+    play(osc(440)[:1.0] >> osc(660)[:1.0] >> osc(880)[:1.0])
+
+def demo1():
+    setup()
+    high = osc(440)[:1.0] >> osc(660)[:1.0] >> osc(880)[:1.0]
+    low = osc(220)[:1.0] >> osc(110)[:1.0] >> osc(55)[:1.0]
+    play((high + low)/2)
