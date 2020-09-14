@@ -4,11 +4,13 @@ import pyaudio
 import time
 import operator
 import atexit
+import functools
 
 
 SAMPLE_RATE = 44100
 
 
+# Helper function to reduce boilerplate.
 def make_stream_op(op, reversed=False):
     if reversed:
         def fn(self, other):
@@ -20,6 +22,7 @@ def make_stream_op(op, reversed=False):
             return stream_zip(self, other).map(lambda p: op(*p))
         return self.map(lambda v: op(v, other))
     return fn
+
 
 class Stream:
     def __init__(self, fn):
@@ -33,8 +36,10 @@ class Stream:
 
     ## Operators
     # `a >> b` means a followed by b. (In tape terms, splicing.)
+    # NOTE: unfortunately, this is left-associative, so `a >> b >> c` will be less efficient than `a >> (b >> c)`.
+    # This will be fixed in the next iteration by Stream subclasses.
     def __rshift__(self, other):
-        return concat(self, other)
+        return concat2(self, other)
 
     # `a >>= b` is the bind operator. For this operator, b is not a stream, but a function that returns a stream.
     def __irshift__(self, other):
@@ -112,16 +117,22 @@ def stream(f):
     return lambda *args, **kwargs: Stream(f(*args, **kwargs))
 
 
-# The basics.
+## Basic stream operations.
 @stream
-def concat(stream_a, stream_b):
+def concat2(stream_a, stream_b):
     def closure():
         result = stream_a()
         if isinstance(result, Return):
             return stream_b()
         value, next_a = result
-        return (value, concat(next_a, stream_b))
+        return (value, concat2(next_a, stream_b))
     return closure
+
+def concat(streams):
+    return functools.reduce(lambda x, y: y >> x, list(streams)[::-1])
+
+def cycle(stream):
+    return stream >> (lambda: cycle(stream)())
 
 @stream
 def bind(stream_a, stream_fn_b):
@@ -246,19 +257,65 @@ def stream_slice(stream, start, stop, step):
     return stream
 
 
-# Synthesis functions.
+## Funkier stuff: memoizing streams, converting other sequences to Streams.
+@stream
+def memoize(stream):
+    called = False
+    saved = None
+    def closure():
+        nonlocal called, saved
+        if not called:
+            called = True
+            result = stream()
+            if isinstance(result, Return):
+                saved = result
+            else:
+                value, next_stream = result
+                saved = (value, memoize(next_stream))
+        return saved
+    return closure
+
+# The memoization is necessary here because there's no way to replay a Python iterator from an earlier point.
+def iter_to_stream(iter):
+    def closure():
+        try:
+            v = next(iter)
+            return (v, closure)
+        except StopIteration:
+            return Return()
+    return memoize(closure)
+
+def list_to_stream(l):
+    stream = Stream(lambda: Return())
+    for v in l[::-1]:
+        stream = (lambda x, r: Stream(lambda: (x, r)))(v, stream)
+    return stream
+
+
+## Synthesis functions.
 silence = repeat(0)
 
 def osc(freq):
     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
 
+def basic_envelope(length):
+    length = convert_time(length)
+    ramp_time = int(length * 0.1)
+    ramp = np.linspace(0, 1, ramp_time)
+    envelope = np.concatenate((ramp, np.ones(length - ramp_time*2), ramp[::-1]))
+    return list_to_stream(envelope)
 
-# PyAudio stuff
+
+## Utilities that have more to do with audio than streams.
 def convert_time(time):
     if isinstance(time, float):
         return int(time * SAMPLE_RATE)
     return time
 
+def m2f(midi):
+    return 2**((midi - 69)/12) * 440
+
+## PyAudio stuff
 def callback(in_data, frame_count, time_info, status):
     flag = pyaudio.paContinue
     for i, sample in zip(range(frame_count), callback.samples):
