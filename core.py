@@ -260,20 +260,18 @@ def convert_time(time):
     return time
 
 def callback(in_data, frame_count, time_info, status):
-        audio = np.zeros(frame_count, dtype=np.float32)
-        flag = pyaudio.paContinue
-        samples = callback.samples
-        for i, sample in zip(range(frame_count), callback.samples):
-            audio[i] = sample
-        if i < frame_count - 1:
-            print("Finished playing.")
-            flag = pyaudio.paComplete
-        return (audio, flag)
+    flag = pyaudio.paContinue
+    for i, sample in zip(range(frame_count), callback.samples):
+        callback.audio[i] = sample
+    if i < frame_count - 1:
+        print("Finished playing.")
+        flag = pyaudio.paComplete
+    return (callback.audio, flag)
 
 # Blocking version; cleans up PyAudio and returns when the composition is finished.
-def run(composition):
+def run(composition, buffer_size=1024):
     callback.samples = iter(composition)
-    buffer_size = 1024
+    callback.audio = np.zeros(buffer_size, dtype=np.float32)
     p = pyaudio.PyAudio()
     stream = p.open(format=pyaudio.paFloat32,
                     channels=1,
@@ -282,11 +280,10 @@ def run(composition):
                     output=True,
                     stream_callback=callback)
     stream.start_stream()
+    setup.done = True
 
     try:
-        # Do whatever you want here.
-        while stream.is_active():
-            # print("Still going!")
+        while True:
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("Finishing early due to user interrupt.")
@@ -296,11 +293,11 @@ def run(composition):
     p.terminate()
 
 # Non-blocking version: setup() and play() are a pair. Works with the REPL.
-def setup():
+def setup(buffer_size=1024):
     if setup.done:
         return
     callback.samples = silence
-    buffer_size = 1024
+    callback.audio = np.zeros(buffer_size, dtype=np.float32)
     p = pyaudio.PyAudio()
     stream = p.open(format=pyaudio.paFloat32,
                     channels=1,
