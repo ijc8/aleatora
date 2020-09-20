@@ -1,9 +1,7 @@
 import math
 import numpy as np
-import pyaudio
 import time
 import operator
-import atexit
 import functools
 
 
@@ -99,6 +97,7 @@ class StreamIterator:
         # Note that this can be read by the user after a for loop, to get at the rest of the stream.
         # (e.g. after `for i, x in zip(range(5), stream_iter):`; see drop() below for an example.)
         self.rest = stream
+        self.last_value = None
         self.returned = None
 
     def __iter__(self):
@@ -109,8 +108,8 @@ class StreamIterator:
         if isinstance(result, Return):
             self.returned = result
             raise StopIteration(result.value)
-        value, self.rest = result
-        return value
+        self.last_value, self.rest = result
+        return self.last_value
 
 
 def stream(f):
@@ -314,77 +313,3 @@ def convert_time(time):
 
 def m2f(midi):
     return 2**((midi - 69)/12) * 440
-
-## PyAudio stuff
-def callback(in_data, frame_count, time_info, status):
-    flag = pyaudio.paContinue
-    for i, sample in zip(range(frame_count), callback.samples):
-        callback.audio[i] = sample
-    if i < frame_count - 1:
-        print("Finished playing.")
-        flag = pyaudio.paComplete
-    return (callback.audio, flag)
-
-# Blocking version; cleans up PyAudio and returns when the composition is finished.
-def run(composition, buffer_size=1024):
-    callback.samples = iter(composition)
-    callback.audio = np.zeros(buffer_size, dtype=np.float32)
-    p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    frames_per_buffer=buffer_size,
-                    rate=SAMPLE_RATE,
-                    output=True,
-                    stream_callback=callback)
-    stream.start_stream()
-    setup.done = True
-
-    try:
-        while True:
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        print("Finishing early due to user interrupt.")
-
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
-
-# Non-blocking version: setup() and play() are a pair. Works with the REPL.
-def setup(buffer_size=1024):
-    if setup.done:
-        return
-    callback.samples = silence
-    callback.audio = np.zeros(buffer_size, dtype=np.float32)
-    p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    frames_per_buffer=buffer_size,
-                    rate=SAMPLE_RATE,
-                    output=True,
-                    stream_callback=callback)
-    stream.start_stream()
-    setup.done = True
-
-    def cleanup():
-        # Seems like pyaudio should already do this, via e.g. stream.__del__ and p.__del___...
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
-    atexit.register(cleanup)
-
-setup.done = False
-
-def play(composition):
-    callback.samples = iter(composition >> silence)
-
-
-# Example:
-def demo0():
-    setup()
-    play(osc(440)[:1.0] >> osc(660)[:1.0] >> osc(880)[:1.0])
-
-def demo1():
-    setup()
-    high = osc(440)[:1.0] >> osc(660)[:1.0] >> osc(880)[:1.0]
-    low = osc(220)[:1.0] >> osc(110)[:1.0] >> osc(55)[:1.0]
-    play((high + low)/2)
