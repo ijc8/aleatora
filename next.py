@@ -142,6 +142,8 @@ class MixStream(Stream):
                 self.streams.append(stream)
 
     def __call__(self):
+        if len(self.streams) == 1:
+            return self.streams[0]()
         results = [stream() for stream in self.streams]
         continuing = [result for result in results if not isinstance(result, Return)]
         if not continuing:
