@@ -43,6 +43,67 @@ def traverse(stream):
     return tree
 
 
+def text_graph(stream):
+    lines = []
+    markers = {}
+    def dfs(node, row, col):
+        nonlocal lines
+        marker = None
+        if row >= len(lines):
+            lines += [''] * (row - len(lines) + 1)
+        if col > len(lines[row]):
+            lines[row] += ' ' * (col - len(lines[row]))
+        if isinstance(node[0], int):
+            marker = node[0]
+            markers[marker] = node[1]
+            node.pop(0)
+        stype = node[0].split()[0]
+        name = stype
+        if marker is not None:
+            name = f'{marker}:{name}'
+        if stype == 'Stream':
+            lines[row] += name
+            width, height = len(name), 1
+        elif stype == 'Concat':
+            width = len(name) + 2
+            lines[row] += name + ' {'
+            height = 1
+            for child in node[1][:-1]:
+                w, h = dfs(child, row, col + width)
+                height = max(height, h)
+                lines[row] += ' >> '
+                width += w + 4
+            w, h = dfs(node[1][-1], row, col + width)
+            height = max(height, h)
+            lines[row] += '}'
+            width += w + 1
+        elif stype in ('Mix', 'Zip'):
+            init_width = len(name) + 2
+            width = init_width
+            lines[row] += name + ': '
+            height = 0
+            for child in node[1]:
+                w, h = dfs(child, row + height, col + init_width)
+                width = max(width, init_width + w)
+                height += h
+            height = max(height, 1)
+        elif stype in ('Map', 'Slice'):
+            lines[row] += name + ' ['
+            width = len(name) + 2
+            w, h = dfs(node[2], row, col + width)
+            width += w + 1
+            lines[row] += ']'
+            height = h
+        elif stype == 'cycle!':
+            text = f'Ref:{node[1]}'
+            lines[row] += text
+            return (len(text), 1)
+        return width, height
+    dfs(traverse(stream), 0, 0)
+    print('\n'.join(lines))
+    return lines
+
+
 def graph(stream):
     root = Digraph()  # (engine='fdp')
     markers = {}
