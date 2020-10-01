@@ -38,7 +38,7 @@ def run(composition, buffer_size=1024):
     p.terminate()
 
 # Non-blocking version: setup() and play() are a pair. Works with the REPL.
-def setup(buffer_size=1024):
+def setup(buffer_size=2048):
     if setup.done:
         return
     callback.samples = core.silence
@@ -63,4 +63,6 @@ def setup(buffer_size=1024):
 setup.done = False
 
 def play(composition):
+    if not setup.done:
+        setup()
     callback.samples = iter(composition >> core.silence)

@@ -248,6 +248,8 @@ def count(start=0):
 def repeat(value):
     return lambda: (value, repeat(value))
 
+silence = repeat(0)
+
 @stream("memoize")
 def memoize(stream):
     called = False
@@ -286,6 +288,9 @@ def list_to_stream(l):
 
 def osc(freq):
     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
+
+def sqr(freq):
+    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) > 0.5) * 2 - 1)
 
 def basic_envelope(length):
     length = convert_time(length)

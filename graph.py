@@ -1,6 +1,7 @@
 from graphviz import Digraph
 from pprint import pprint
 from next import *
+import matplotlib.pyplot as plt
 
 def traverse(stream):
     seen = {}
@@ -147,3 +148,15 @@ def graph(stream):
     dfs(traverse(stream), root)
     root.render(view=True)
     return root
+
+# Not really related to the above functions, but on the general theme of visualizing:
+def plot(stream):
+    plt.plot(list(stream))
+    plt.show(block=False)
+
+def plot_spectrum(stream):
+    samples = list(stream)
+    x = SAMPLE_RATE * np.arange(np.ceil((len(samples)+1)/2))/len(samples)
+    print(len(samples), len(x), len(np.fft.fft(samples)), len(np.fft.rfft(samples)))
+    plt.plot(x, np.abs(np.fft.rfft(samples)))
+    plt.show(block=False)
