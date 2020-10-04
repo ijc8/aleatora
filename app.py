@@ -1,11 +1,14 @@
-import kivy
-
 from kivy.app import App
 from kivy.uix.button import Button
 from kivy.uix.codeinput import CodeInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.scatter import Scatter, ScatterPlane
+
+import traceback
+import sys
+import importlib
+from types import ModuleType
 
 import next
 import audio
@@ -43,8 +46,11 @@ def build_graph_layout(stream):
         if isinstance(node[0], int):
             name = f'{node[0]}:'
             node.pop(0)
-        name += node[0]
-        if node[0].startswith('Stream'):
+        if node[0].startswith('Name'):
+            name += node[1]
+        else:
+            name += node[0]
+        if node[0].startswith('Stream') or node[0].startswith('Name'):
             return GraphLabel(text=name)
         elif any(node[0].startswith(s) for s in ('Map', 'Slice')):
             box = GraphBorderLayout(orientation='vertical')
@@ -75,13 +81,18 @@ class MyApp(App):
                 print("To play a stream, bind it to 'main'.")
             else:
                 main = globals['main']
+                # Hacky attempt to force reloading user-imported modules on the next run.
+                for name in globals:
+                    if isinstance(globals[name], ModuleType) and name not in vars(next):
+                        print(globals[name])
+                        del sys.modules[globals[name].__name__]
                 graph.text_graph(main)
                 self.graph_layout.clear_widgets()
                 self.graph = build_graph_layout(main)
                 self.graph_layout.add_widget(self.graph)
                 audio.play(main)
         except Exception as e:
-            print(e)
+            traceback.print_exc()
 
     def build(self):
         button = Button(text='Run', height=40, size_hint=(1, None))

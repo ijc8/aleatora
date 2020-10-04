@@ -25,6 +25,8 @@ def traverse(stream):
             result = ['Zip', [dfs(s) for s in stream.streams]]
         elif isinstance(stream, SliceStream):
             result = ['Slice', slice(stream.start, stream.stop, stream.step), dfs(stream.stream)]
+        elif isinstance(stream, NamedStream):
+            result = ['Name', stream.name]
         else:
             result = ['Stream']
         result[0] += ' ' + str(count)
@@ -60,9 +62,11 @@ def text_graph(stream):
             node.pop(0)
         stype = node[0].split()[0]
         name = stype
+        if stype == 'Name':
+            name = node[1]
         if marker is not None:
             name = f'{marker}:{name}'
-        if stype == 'Stream':
+        if stype in ['Stream', 'Name']:
             lines[row] += name
             width, height = len(name), 1
         elif stype == 'Concat':

@@ -216,16 +216,9 @@ class SliceStream(Stream):
 
 
 class NamedStream(Stream):
-    def __init__(self, name, stream):
+    def __init__(self, name, fn):
         self.name = name
-        self.stream = stream
-
-    def __call__(self):
-        result = self.stream()
-        if isinstance(result, Return):
-            return result
-        value, next_stream = result
-        return (value, NamedStream(self.name, next_stream))
+        super().__init__(fn)
 
 
 def cycle(stream):
@@ -233,10 +226,38 @@ def cycle(stream):
     cycled.streams = (stream, cycled)
     return cycled
 
-def stream(name="unknown"):
-    # TODO: in debug mode, returned a NamedStream instead.
+# This wraps primitive streams (functions) and optionally names them. Assumes the decorated function is lazily recursive.
+def stream(name=None):
+    if name:
+        def wrapper(f):
+            return lambda *args, **kwargs: NamedStream(name, f(*args, **kwargs))
+    else:
+        def wrapper(f):
+            return lambda *args, **kwargs: Stream(f(*args, **kwargs))
+    return wrapper
+
+# This is for naming complex streams, which do not refer to themselves.
+def namify(name, init_stream):
+    @stream(name=name)
+    def namer(stream):
+        def closure():
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            return (value, namer(next_stream))
+        return closure
+    return namer(init_stream)
+
+# Decorator version
+# NOTE: Unlike @stream, where specifying a name involves no additional layers of indirection,
+#       this adds overhead because namify wraps an existing Stream (much like Map).
+def name(name):
     def wrapper(f):
-        return lambda *args, **kwargs: Stream(f(*args, **kwargs))
+        def inner(*args, **kwargs):
+            init_stream = f(*args, **kwargs)
+            return namify(name, init_stream)
+        return inner
     return wrapper
 
 
@@ -248,7 +269,7 @@ def count(start=0):
 def repeat(value):
     return lambda: (value, repeat(value))
 
-silence = repeat(0)
+silence = namify("silence", repeat(0))
 
 @stream("memoize")
 def memoize(stream):
@@ -285,7 +306,7 @@ def list_to_stream(l):
         stream = (lambda x, r: Stream(lambda: (x, r)))(v, stream)
     return NamedStream("list", stream)
 
-
+@name("osc")
 def osc(freq):
     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
 
