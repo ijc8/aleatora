@@ -1,68 +1,63 @@
-import pyaudio
-import numpy as np
 import core
+
+import sounddevice as sd
+import numpy as np
+
 import atexit
 import time
+import traceback
 
-def callback(in_data, frame_count, time_info, status):
-    flag = pyaudio.paContinue
-    for i, sample in zip(range(frame_count), callback.samples):
-        callback.audio[i] = sample
-    if i < frame_count - 1:
-        print("Finished playing.")
-        flag = pyaudio.paComplete
-    return (callback.audio, flag)
+# sd.default.device = 10
 
-# Blocking version; cleans up PyAudio and returns when the composition is finished.
-def run(composition, buffer_size=1024):
-    callback.samples = iter(composition)
-    callback.audio = np.zeros(buffer_size, dtype=np.float32)
-    p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    frames_per_buffer=buffer_size,
-                    rate=core.SAMPLE_RATE,
-                    output=True,
-                    stream_callback=callback)
-    stream.start_stream()
-    setup.done = True
+# Blocking version; cleans up and returns when the composition is finished.
+def run(composition):
+    samples = iter(composition)
 
-    try:
-        while True:
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        print("Finishing early due to user interrupt.")
+    def callback(outdata, frames, time, status):
+        for i, sample in zip(range(frames), samples):
+            outdata[i] = sample
+        if i < frames - 1:
+            print("Finished playing.")
+            raise sd.CallbackStop
 
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+    with sd.OutputStream(channels=1, callback=callback):
+        try:
+            while True:
+                sd.sleep(100)
+        except KeyboardInterrupt:
+            print("Finishing early due to user interrupt.")
 
-# Non-blocking version: setup() and play() are a pair. Works with the REPL.
-def setup(buffer_size=2048):
+# # Non-blocking version: setup() and play() are a pair. Works with the REPL.
+def setup():
     if setup.done:
         return
-    callback.samples = core.silence
-    callback.audio = np.zeros(buffer_size, dtype=np.float32)
-    p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    frames_per_buffer=buffer_size,
-                    rate=core.SAMPLE_RATE,
-                    output=True,
-                    stream_callback=callback)
-    stream.start_stream()
+    play_callback.samples = iter(core.silence)
+    stream = sd.OutputStream(channels=1, callback=play_callback)
+    stream.start()
     setup.done = True
 
+    # TODO: check if this is still necessary.
     def cleanup():
-        # Seems like pyaudio should already do this, via e.g. stream.__del__ and p.__del___...
-        stream.stop_stream()
+        stream.stop()
         stream.close()
-        p.terminate()
     atexit.register(cleanup)
 
 setup.done = False
 
+def play_callback(outdata, frames, time, status):
+    try:
+        for i, sample in zip(range(frames), play_callback.samples):
+            outdata[i] = sample
+    except:
+        traceback.print_exc()
+        play_callback.samples = iter(core.silence)
+    if i < frames - 1:
+        print("Finished playing.")
+        raise sd.CallbackStop
+
 def play(composition):
     if not setup.done:
         setup()
-    callback.samples = iter(composition >> core.silence)
+    play_callback.samples = iter(composition >> core.silence)
+
+# run(core.osc(440))
