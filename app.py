@@ -10,7 +10,7 @@ import sys
 import importlib
 from types import ModuleType
 
-import next
+import core
 import audio
 import graph
 
@@ -75,7 +75,7 @@ def build_graph_layout(stream):
 class MyApp(App):
     def run_code(self, button):
         try:
-            globals = vars(next).copy()
+            globals = vars(core).copy()
             exec(self.input.text, globals)
             if 'main' not in globals:
                 print("To play a stream, bind it to 'main'.")
@@ -83,7 +83,7 @@ class MyApp(App):
                 main = globals['main']
                 # Hacky attempt to force reloading user-imported modules on the next run.
                 for name in globals:
-                    if isinstance(globals[name], ModuleType) and name not in vars(next):
+                    if isinstance(globals[name], ModuleType) and name not in vars(core):
                         print(globals[name])
                         del sys.modules[globals[name].__name__]
                 graph.text_graph(main)

@@ -1,4 +1,4 @@
-from next import *
+from core import *
 import math
 
 # TODO: define this in terms of a fold.
@@ -237,16 +237,16 @@ rand = Stream(lambda: (random.random(), rand))
 play(cycle(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01)))
 
 shaker = cycle(fit(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01), 60 / (120 * 2)))
-riff = basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)/40
+riff = basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)
 play(shaker + riff)
-import bass
 play(shaker)
 play(riff)
+import bass
 # Oof. Even this trivial convolve is behaving poorly, which suggests that filters may be problematic...
 play(bass.convolve(shaker, np.array([1])))
 # Maybe for now I should try to avoid getting too much into fancy DSP and stick with the tape stuff.
 
-# TODO: this, but without reseting the playhead every time.
+# TODO: this, but without resetting the playhead every time.
 total = silence
 def play_layer(s):
     global total
@@ -257,4 +257,41 @@ play_layer(shaker)
 play_layer(riff)
 play(silence)
 
-resample(stream, advance_stream)
+# Stream-controlled resampler. Think varispeed.
+@stream("resample")
+def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
+    def closure():
+        nonlocal stream, pos, sample, next_sample
+        result = advance_stream()
+        if isinstance(result, Return):
+            return result
+        advance, next_advance_stream = result
+        pos += advance
+        while pos >= 0:
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            sample = next_sample
+            next_sample, stream = result
+            pos -= 1
+        interpolated = (next_sample - sample) * (pos + 1) + sample
+        return (interpolated, resample(stream, next_advance_stream, pos, sample, next_sample))
+    return closure
+
+def freeze(stream):
+    print('Rendering...')
+    t = time.time()
+    r = list_to_stream(list(stream))
+    print('Done in', time.time() - t)
+    return r
+
+play(osc(440))
+play(silence)
+# save(resample(riff, osc(1)/2 + 1)[:10.0], 'riff.wav')
+# f = freeze(resample(riff, osc(1)/2 + 1)[:10.0])
+# play(f)
+play(resample(riff, osc(1) + 2))
+play(resample(riff, repeat(1.2) + tri(5)))
+play(resample(osc(440), repeat(1)))
+# play(resample(riff, osc(1)/2 + 1))
+# play(resample(rand, osc(1)/2 + 1))

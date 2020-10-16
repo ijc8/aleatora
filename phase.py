@@ -1,4 +1,4 @@
-from next import *
+from core import *
 
 # A variant of Reich's Piano Phase in the style of Sam Aaron's examples, which (unlike the original) are continuously phasing.
 # See https://gist.github.com/samaaron/997ba2902af1cf81a26f

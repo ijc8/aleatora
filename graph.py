@@ -1,6 +1,6 @@
 from graphviz import Digraph
 from pprint import pprint
-from next import *
+from core import *
 import matplotlib.pyplot as plt
 
 def traverse(stream):

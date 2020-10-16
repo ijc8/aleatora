@@ -1,4 +1,4 @@
-from next import *
+from core import *
 import audio
 import numpy as np
 
