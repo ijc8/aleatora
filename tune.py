@@ -117,16 +117,36 @@ def basic_sequencer(note_stream, bpm=80):
     # Assumes quarters have the beat.
     return lazy_concat(note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)))
 
+def adsr(attack, decay, sustain_time, sustain_level, release):
+    attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
+    return list_to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
+                                          np.linspace(1, sustain_level, decay, endpoint=False),
+                                          np.ones(sustain_time) * sustain_level,
+                                          np.linspace(0, sustain_level, release, endpoint=False)[::-1])))
+
+
+# This function produces a stream of exactly length, by trimming or padding as needed.
+# Hypothetically, might also want a function that strictly pads (like str.ljust()).
+# Could return another object with length metadata, or make this a method and override it for some kinds of streams.
+def fit(stream, length):
+    return (stream >> silence)[:length]
+
+# TODO: overlapping concat
+# TODO: replace list_to_stream with to_stream (maybe a different name)
+# perhaps streams made from lists (+ arrays, tuples, strings...) should be a new class for inspection
+
 # main = fm_osc(glide(cycle(list_to_stream([100, 200, 300])), 1.0, 0.2))
 from audio import *
-play(osc(440))
-save(osc(440)[:10.0], 'osc.wav')
-play(fm_osc(glide(cycle(list_to_stream([200, 300, 400])), 1.0, 0.2)))
-play(silence)
-play(basic_sequencer(cycle(list_to_stream([(60, 1/4), (67, 1/8), (69, 1/8)])), bpm=120))
-# play(basic_sequencer(alberti(C('C', oct=3)), bpm=240))
 from wav import save
-save(basic_sequencer(alberti(C('C', oct=3)), bpm=240)[:10.0], 'alberti.wav')
+# play(osc(440))
+# save(osc(440)[:10.0], 'osc.wav')
+play(fm_osc(glide(cycle(list_to_stream([200, 300, 400])), 1.0, 0.2)))
+env = adsr(0.2, 0.3, 0.5, 0.5, 0.5)
+play(fm_osc(osc(100) * 440 * env + 440) * env)
+# play(silence)
+# play(basic_sequencer(cycle(list_to_stream([(60, 1/4), (67, 1/8), (69, 1/8)])), bpm=120))
+# play(basic_sequencer(alberti(C('C', oct=3)), bpm=60))
+# save(basic_sequencer(alberti(C('C', oct=3)), bpm=240)[:10.0], 'alberti.wav')
 
 import random
 rand = Stream(lambda: (random.random(), rand))
