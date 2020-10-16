@@ -113,6 +113,9 @@ def lazy_concat(stream_of_streams):
         return (value >> lazy_concat(next_stream))()
     return closure
 
+def sqr_inst(pitch, duration):
+    return sqr(m2f(pitch)) * basic_envelope(60.0 / bpm * duration * 4)
+
 def basic_sequencer(note_stream, bpm=80):
     # Assumes quarters have the beat.
     return lazy_concat(note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)))
@@ -135,19 +138,123 @@ def fit(stream, length):
 # TODO: replace list_to_stream with to_stream (maybe a different name)
 # perhaps streams made from lists (+ arrays, tuples, strings...) should be a new class for inspection
 
+# Three questions, looking ahead: timelines, tempo contexts, and inter-tape synchronization.
+# One important point about the stream abstraction:
+# It's easy to embed other abstractions inside of it, in their own little worlds
+# This is not true of, for instance, the audio graph abstraction.
+# Imagine trying to implement lazy streams in MSP.
+# (Technically possible with the WebAudio API due to the buffer-level access provided by workers.)
+
 # main = fm_osc(glide(cycle(list_to_stream([100, 200, 300])), 1.0, 0.2))
 from audio import *
 from wav import save
 # play(osc(440))
 # save(osc(440)[:10.0], 'osc.wav')
 play(fm_osc(glide(cycle(list_to_stream([200, 300, 400])), 1.0, 0.2)))
-env = adsr(0.2, 0.3, 0.5, 0.5, 0.5)
-play(fm_osc(osc(100) * 440 * env + 440) * env)
-# play(silence)
+# env = list_to_stream(list(adsr(0.8, 0.3, 1.5, 0.5, 0.5))[::-1])
+env = adsr(0.8, 0.3, 1.5, 0.5, 0.5)
+salt = fm_osc(fm_osc(8 * env) * 100 * env + 440) * env
+play(salt)
+play(silence)
+play(osc(440))
 # play(basic_sequencer(cycle(list_to_stream([(60, 1/4), (67, 1/8), (69, 1/8)])), bpm=120))
-# play(basic_sequencer(alberti(C('C', oct=3)), bpm=60))
+play(basic_sequencer(alberti(C('D6', oct=3)), bpm=60) / 30)
+play(basic_sequencer(cycle(list_to_stream([(60, 0.25), (60, 0.25), (0, 0.25), (58, 0.25)])), bpm=300)/40)
+phrase1 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (59, 1/16), (0, 1/16)]
+phrase2 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (57, 1/16), (55, 1/16), (53, 1/16), (55, 1/16), (58, 1/16), (0, 2/16)]
+play(basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)/40)
 # save(basic_sequencer(alberti(C('C', oct=3)), bpm=240)[:10.0], 'alberti.wav')
+
+def pulse(freq, duty):
+    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
+
+@stream("fm_osc")
+def fm_osc(freq_stream, phase=0):
+    def closure():
+        result = freq_stream()
+        if isinstance(result, Return):
+            return result
+        freq, next_stream = result
+        return (math.sin(phase), fm_osc(next_stream, phase + 2*math.pi*freq/SAMPLE_RATE))
+    return closure
+
+# foldr, not foldl.
+@stream("fold")
+def fold(stream, f, acc):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return acc
+        x, next_stream = result
+        return f(x, fold(next_stream, f, acc))
+    return closure
+
+# scanl, not scanr
+@stream("scan")
+def scan(stream, f, acc):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return acc
+        x, next_stream = result
+        next_acc = f(x, acc)
+        return (acc, scan(next_stream, f, next_acc))
+    return closure
+
+list(scan(count(), lambda x, y: x+y, 0)[:5])
+
+# TODO: evaluate performance compared to custom definition above.
+# def fm_osc(freq_stream):
+#     return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: math.sin(2*math.pi*phase/SAMPLE_RATE))
+
+play(fm_osc(osc(200) * 100 + 440))
+play(osc(440))
+
+def pulse(freq, duty):
+    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
+
+def fm_pulse(freq_stream, duty):
+    return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: int(((phase/SAMPLE_RATE) % 1) < duty) * 2 - 1)
+
+def tri(freq):
+    return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
+
+play(tri(440) / 10)
+play(sqr(440) / 10)
+
+play(silence)
+play(pulse(440, 0.25) / 10)
+play(fm_pulse(tri(0.1) * 100 + 300, 0.25) / 30)
 
 import random
 rand = Stream(lambda: (random.random(), rand))
-play(rand)
+play(cycle(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01)))
+
+shaker = cycle(fit(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01), 60 / (120 * 2)))
+riff = basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)/40
+play(shaker + riff)
+import bass
+play(shaker)
+play(riff)
+# Oof. Even this trivial convolve is behaving poorly, which suggests that filters may be problematic...
+play(bass.convolve(shaker, np.array([1])))
+# Maybe for now I should try to avoid getting too much into fancy DSP and stick with the tape stuff.
+
+# TODO: this, but without reseting the playhead every time.
+total = silence
+def play_layer(s):
+    global total
+    total += s
+    play(total)
+
+play_layer(shaker)
+play_layer(riff)
+play(silence)
+
+resample(stream, advance_stream)
