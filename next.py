@@ -4,6 +4,8 @@ import time
 import operator
 
 
+# This is the default sample rate, but it may be modified by audio module to
+# match what the audio device supports.
 SAMPLE_RATE = 44100
 
 
@@ -301,6 +303,7 @@ def iter_to_stream(iter):
 empty = Stream(lambda: Return())
 
 def list_to_stream(l):
+    # Constructs the whole stream immediately.
     stream = empty
     for v in l[::-1]:
         stream = (lambda x, r: Stream(lambda: (x, r)))(v, stream)

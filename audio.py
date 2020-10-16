@@ -1,4 +1,4 @@
-import core
+import next
 
 import sounddevice as sd
 import numpy as np
@@ -20,7 +20,8 @@ def run(composition):
             print("Finished playing.")
             raise sd.CallbackStop
 
-    with sd.OutputStream(channels=1, callback=callback):
+    with sd.OutputStream(channels=1, callback=callback) as stream:
+        next.SAMPLE_RATE = stream.samplerate
         try:
             while True:
                 sd.sleep(100)
@@ -31,8 +32,9 @@ def run(composition):
 def setup():
     if setup.done:
         return
-    play_callback.samples = iter(core.silence)
+    play_callback.samples = iter(next.silence)
     stream = sd.OutputStream(channels=1, callback=play_callback)
+    next.SAMPLE_RATE = stream.samplerate
     stream.start()
     setup.done = True
 
@@ -48,16 +50,14 @@ def play_callback(outdata, frames, time, status):
     try:
         for i, sample in zip(range(frames), play_callback.samples):
             outdata[i] = sample
+        if i < frames - 1:
+            print("Finished playing.")
+            raise sd.CallbackStop
     except:
         traceback.print_exc()
-        play_callback.samples = iter(core.silence)
-    if i < frames - 1:
-        print("Finished playing.")
-        raise sd.CallbackStop
+        play_callback.samples = iter(next.silence)
 
 def play(composition):
     if not setup.done:
         setup()
-    play_callback.samples = iter(composition >> core.silence)
-
-# run(core.osc(440))
+    play_callback.samples = iter(composition >> next.silence)
