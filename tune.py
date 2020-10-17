@@ -1,33 +1,6 @@
 from core import *
 import math
 
-# TODO: define this in terms of a fold.
-# TODO: expose the freq_stream for inspection.
-#   This will probably require making this a class and rethinking how graph generation works.
-@stream("fm_osc")
-def fm_osc(freq_stream, phase=0):
-    def closure():
-        result = freq_stream()
-        if isinstance(result, Return):
-            return result
-        freq, next_stream = result
-        return (math.sin(phase), fm_osc(next_stream, phase + 2*math.pi*freq/SAMPLE_RATE))
-    return closure
-
-# main = fm_osc(count() / 480 % 800)
-
-def glide(freq_stream, hold_time, transition_time, start_freq=0):
-    def closure():
-        result = freq_stream()
-        if isinstance(result, Return):
-            return result
-        freq, next_stream = result
-        tt = convert_time(transition_time)
-        transition = (count()[:tt] / tt) * (freq - start_freq) + start_freq
-        hold = repeat(freq)[:hold_time]
-        return (transition >> hold >> glide(next_stream, hold_time, transition_time, start_freq=freq))()
-    return closure
-
 
 class Chord:
     def __init__(self, notes, name='unknown'):
@@ -103,36 +76,6 @@ def alberti(chord):
         sequence.append(chord.notes[-1])
     return cycle(list_to_stream(sequence)).map(lambda p: (p, 1/8))
 
-@stream("lazy_concat")
-def lazy_concat(stream_of_streams):
-    def closure():
-        result = stream_of_streams()
-        if isinstance(result, Return):
-            return result
-        value, next_stream = result
-        return (value >> lazy_concat(next_stream))()
-    return closure
-
-def sqr_inst(pitch, duration):
-    return sqr(m2f(pitch)) * basic_envelope(60.0 / bpm * duration * 4)
-
-def basic_sequencer(note_stream, bpm=80):
-    # Assumes quarters have the beat.
-    return lazy_concat(note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)))
-
-def adsr(attack, decay, sustain_time, sustain_level, release):
-    attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
-    return list_to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
-                                          np.linspace(1, sustain_level, decay, endpoint=False),
-                                          np.ones(sustain_time) * sustain_level,
-                                          np.linspace(0, sustain_level, release, endpoint=False)[::-1])))
-
-
-# This function produces a stream of exactly length, by trimming or padding as needed.
-# Hypothetically, might also want a function that strictly pads (like str.ljust()).
-# Could return another object with length metadata, or make this a method and override it for some kinds of streams.
-def fit(stream, length):
-    return (stream >> silence)[:length]
 
 # TODO: overlapping concat
 # TODO: replace list_to_stream with to_stream (maybe a different name)
@@ -152,60 +95,14 @@ from wav import save
 # save(osc(440)[:10.0], 'osc.wav')
 play(fm_osc(glide(cycle(list_to_stream([200, 300, 400])), 1.0, 0.2)))
 # env = list_to_stream(list(adsr(0.8, 0.3, 1.5, 0.5, 0.5))[::-1])
-env = adsr(0.8, 0.3, 1.5, 0.5, 0.5)
-salt = fm_osc(fm_osc(8 * env) * 100 * env + 440) * env
-play(salt)
+
 play(silence)
 play(osc(440))
 # play(basic_sequencer(cycle(list_to_stream([(60, 1/4), (67, 1/8), (69, 1/8)])), bpm=120))
-play(basic_sequencer(alberti(C('D6', oct=3)), bpm=60) / 30)
-play(basic_sequencer(cycle(list_to_stream([(60, 0.25), (60, 0.25), (0, 0.25), (58, 0.25)])), bpm=300)/40)
-phrase1 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (59, 1/16), (0, 1/16)]
-phrase2 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
-           (58, 1/16), (57, 1/16), (55, 1/16), (53, 1/16), (55, 1/16), (58, 1/16), (0, 2/16)]
-play(basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)/40)
 # save(basic_sequencer(alberti(C('C', oct=3)), bpm=240)[:10.0], 'alberti.wav')
 
 def pulse(freq, duty):
     return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
-
-@stream("fm_osc")
-def fm_osc(freq_stream, phase=0):
-    def closure():
-        result = freq_stream()
-        if isinstance(result, Return):
-            return result
-        freq, next_stream = result
-        return (math.sin(phase), fm_osc(next_stream, phase + 2*math.pi*freq/SAMPLE_RATE))
-    return closure
-
-# foldr, not foldl.
-@stream("fold")
-def fold(stream, f, acc):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return acc
-        x, next_stream = result
-        return f(x, fold(next_stream, f, acc))
-    return closure
-
-# scanl, not scanr
-@stream("scan")
-def scan(stream, f, acc):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return acc
-        x, next_stream = result
-        next_acc = f(x, acc)
-        return (acc, scan(next_stream, f, next_acc))
-    return closure
 
 list(scan(count(), lambda x, y: x+y, 0)[:5])
 
@@ -216,15 +113,6 @@ list(scan(count(), lambda x, y: x+y, 0)[:5])
 play(fm_osc(osc(200) * 100 + 440))
 play(osc(440))
 
-def pulse(freq, duty):
-    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
-
-def fm_pulse(freq_stream, duty):
-    return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: int(((phase/SAMPLE_RATE) % 1) < duty) * 2 - 1)
-
-def tri(freq):
-    return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
-
 play(tri(440) / 10)
 play(sqr(440) / 10)
 
@@ -232,18 +120,9 @@ play(silence)
 play(pulse(440, 0.25) / 10)
 play(fm_pulse(tri(0.1) * 100 + 300, 0.25) / 30)
 
-import random
-rand = Stream(lambda: (random.random(), rand))
 play(cycle(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01)))
 
-shaker = cycle(fit(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01), 60 / (120 * 2)))
-riff = basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)
-play(shaker + riff)
-play(shaker)
-play(riff)
-import bass
-# Oof. Even this trivial convolve is behaving poorly, which suggests that filters may be problematic...
-play(bass.convolve(shaker, np.array([1])))
+# Oof. Even this convolve([1], ...) is behaving poorly, which suggests that filters may be problematic...
 # Maybe for now I should try to avoid getting too much into fancy DSP and stick with the tape stuff.
 
 # TODO: this, but without resetting the playhead every time.
@@ -253,45 +132,11 @@ def play_layer(s):
     total += s
     play(total)
 
-play_layer(shaker)
-play_layer(riff)
-play(silence)
+# This version does the same thing without resetting
+# the playhead position on what's already playing.
+import audio
+def addplay(layer):
+    play(audio.play_callback.samples.rest + layer)
 
-# Stream-controlled resampler. Think varispeed.
-@stream("resample")
-def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
-    def closure():
-        nonlocal stream, pos, sample, next_sample
-        result = advance_stream()
-        if isinstance(result, Return):
-            return result
-        advance, next_advance_stream = result
-        pos += advance
-        while pos >= 0:
-            result = stream()
-            if isinstance(result, Return):
-                return result
-            sample = next_sample
-            next_sample, stream = result
-            pos -= 1
-        interpolated = (next_sample - sample) * (pos + 1) + sample
-        return (interpolated, resample(stream, next_advance_stream, pos, sample, next_sample))
-    return closure
-
-def freeze(stream):
-    print('Rendering...')
-    t = time.time()
-    r = list_to_stream(list(stream))
-    print('Done in', time.time() - t)
-    return r
-
-play(osc(440))
-play(silence)
-# save(resample(riff, osc(1)/2 + 1)[:10.0], 'riff.wav')
-# f = freeze(resample(riff, osc(1)/2 + 1)[:10.0])
-# play(f)
-play(resample(riff, osc(1) + 2))
-play(resample(riff, repeat(1.2) + tri(5)))
-play(resample(osc(440), repeat(1)))
 # play(resample(riff, osc(1)/2 + 1))
 # play(resample(rand, osc(1)/2 + 1))
