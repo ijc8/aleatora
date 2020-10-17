@@ -7,9 +7,8 @@ import atexit
 import time
 import traceback
 
-# sd.default.device = 10
 
-# Blocking version; cleans up and returns when the composition is finished.
+# Non-interactive version; blocking, cleans up and returns when the composition is finished.
 def run(composition):
     samples = iter(composition)
 
@@ -28,10 +27,11 @@ def run(composition):
         except KeyboardInterrupt:
             print("Finishing early due to user interrupt.")
 
-# # Non-blocking version: setup() and play() are a pair. Works with the REPL.
-def setup():
-    if setup.done:
-        return
+
+# Interactive version: setup(), volume(), play(), addplay(). Non-blocking, works with the REPL.
+def setup(device=None):
+    if device is not None:
+        sd.default.device = device
     play_callback.samples = iter(core.silence)
     stream = sd.OutputStream(channels=1, callback=play_callback)
     core.SAMPLE_RATE = stream.samplerate
@@ -50,6 +50,7 @@ def play_callback(outdata, frames, time, status):
     try:
         for i, sample in zip(range(frames), play_callback.samples):
             outdata[i] = sample
+        outdata *= play_callback.volume
         if i < frames - 1:
             print("Finished playing.")
             raise sd.CallbackStop
@@ -57,7 +58,16 @@ def play_callback(outdata, frames, time, status):
         traceback.print_exc()
         play_callback.samples = iter(core.silence)
 
+play_callback.volume = 1.0
+
+def volume(vol):
+    play_callback.volume = vol
+
 def play(composition):
     if not setup.done:
         setup()
     play_callback.samples = iter(composition >> core.silence)
+
+# Add another layer to playback without resetting the position of existing layers.
+def addplay(layer):
+    play(play_callback.samples.rest + layer)
