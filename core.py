@@ -202,7 +202,9 @@ class SliceStream(Stream):
                 pass
             if siter.returned:
                 return siter.returned
-            return SliceStream(siter.rest, 0, self.stop, self.step)()
+            if self.stop is None:
+                return SliceStream(siter.rest, 0, self.stop, self.step)()
+            return SliceStream(siter.rest, 0, self.stop - self.start, self.step)()
         elif self.stop is None and self.step == 1:
             # Special case: no need to wrap this in a slice.
             return self.stream()
@@ -457,6 +459,27 @@ def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
         interpolated = (next_sample - sample) * (pos + 1) + sample
         return (interpolated, resample(stream, next_advance_stream, pos, sample, next_sample))
     return closure
+
+
+@stream("interp")
+def interp(stream, time=0, prev_time=None, prev_value=None, next_time=0, next_value=0):
+    # TODO: adopt a consistent policy re. this kind of convenience conversion
+    if not isinstance(stream, Stream):
+        stream = list_to_stream(stream)
+    def closure():
+        nonlocal stream, time, prev_time, prev_value, next_time, next_value
+        time += 1
+        while time >= next_time:
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            prev_time, prev_value = next_time, next_value
+            (next_time, next_value), stream = result
+            next_time = convert_time(next_time)
+        interpolated = (next_value - prev_value) * (time - prev_time)/(next_time-prev_time) + prev_value
+        return (interpolated, interp(stream, time, prev_time, prev_value, next_time, next_value))
+    return closure
+
 
 def freeze(stream):
     print('Rendering...')
