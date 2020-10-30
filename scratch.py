@@ -147,66 +147,62 @@ import time
 
 
 class ProfileStream(Stream):
-    data = {}
-
-    def __init__(self, key, stream):
-        if key not in ProfileStream.data:
-            ProfileStream.data[key] = {
-                'calls': 0,
-                'ends': 0,
-                'wall': 0.0,
-                'proc': 0.0,
-            }
-        self.key = key
+    def __init__(self, entry, stream):
+        self.entry = entry
         self.stream = stream
 
     def __call__(self):
-        wall_start = time.perf_counter()
-        proc_start = time.process_time()
+        entry = self.entry
+        start = time.perf_counter()
         result = self.stream()
-        wall_end = time.perf_counter()
-        proc_end = time.process_time()
-
-        entry = ProfileStream.data[self.key]
-        entry['calls'] += 1
-        entry['wall'] += wall_end - wall_start
-        entry['proc'] += proc_end - proc_start
+        entry[2] += time.perf_counter() - start
+        entry[0] += 1
 
         if isinstance(result, Return):
-            entry['ends'] += 1
+            entry[1] += 1
             return result
         x, next_stream = result
-        return (x, ProfileStream(self.key, next_stream))
+        return (x, ProfileStream(entry, next_stream))
+
+
+# This is barely a class, hence the lowercase.
+class profile:
+    data = {}
+
+    def __new__(cls, key, stream):
+        if key not in profile.data:
+            # List of [# of calls, # of endings, total time].
+            # Using a list instead of a dict/namedtuple/etc. for performance.
+            profile.data[key] = [0, 0, 0.0]
+        return ProfileStream(profile.data[key], stream)
 
     @staticmethod
     def reset():
-        ProfileStream.data.clear()
+        profile.data.clear()
 
     @staticmethod
     def dump():
         print(f"Real-time budget: {1e6/core.SAMPLE_RATE:.3f}us per sample")
-        for key, entry in ProfileStream.data.items():
-            wall_avg = entry['wall'] / entry['calls']
-            proc_avg = entry['proc'] / entry['calls']
-            print(f"{key}: {entry['calls']} CALLS ({entry['ends']} ENDINGS)")
-            print(f"{' ' * len(key)}  PROC: {proc_avg*1e6:.3f}us avg | {entry['proc']:.3f}s total")
-            print(f"{' ' * len(key)}  WALL: {wall_avg*1e6:.3f}us avg | {entry['wall']:.3f}s total | {wall_avg*core.SAMPLE_RATE*100:.2f}% of budget")
+        for key, (calls, ends, time) in profile.data.items():
+            avg = time / calls
+            print(f"{key}: {calls} calls ({ends} endings)")
+            print(f"{' ' * len(key)}  {avg*1e6:.3f}us avg | {time:.3f}s total | {avg*core.SAMPLE_RATE*100:.2f}% of budget")
 
 
-ProfileStream.reset()
-ProfileStream.dump()
+profile.dump()
+profile.reset()
 
-_ = list(ProfileStream("osc", osc(440))[:5.0])
+_ = list(profile("osc", osc(440))[:5.0])
 
-_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)))[:5.0])
+_ = list(profile("mix", profile("osc 1", osc(440)) + profile("osc 2", osc(660)))[:5.0])
 
-_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)) + ProfileStream("osc 3", osc(880)))[:5.0])
+_ = list(profile("mix", profile("osc 1", osc(440)) + profile("osc 2", osc(660)) + profile("osc 3", osc(880)))[:5.0])
 
-_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)) + ProfileStream("osc 3", osc(880)) + ProfileStream("osc 4", osc(1100)))[:5.0])
+_ = list(profile("mix", profile("osc 1", osc(440)) + profile("osc 2", osc(660)) + profile("osc 3", osc(880)) + profile("osc 4", osc(1100)))[:5.0])
 
-_ = list(ProfileStream("mix", osc(440) + osc(660) + osc(880) + osc(1100))[:5.0])
+_ = list(profile("mix", osc(440) + osc(660) + osc(880) + osc(1100))[:5.0])
 
-_ = list(ProfileStream("zero", silence)[:5.0])
+_ = list(profile("zero", silence)[:10.0])
 
 # Notes:
 # - Things take up more time/budget when played live.
@@ -221,3 +217,18 @@ _ = list(ProfileStream("zero", silence)[:5.0])
 # - Also, this implies mix has surprisingly little cost... or that the timing operations are slow.
 # - Bizarrely, silence has a practically identical profiling result to osc.
 #   This suggests either the stream call overhead or the timing operations far outweigh the actual computation.
+
+# Remove the proc timer and now this looks *way* faster. Phew.
+# Previously saw > 4% for osc, now seeing < 1%.
+# Seeing more meaningful difference between osc and silence. (~1% vs. ~.65%)
+# mix w and w/o child container is closer now: 17% w/, 10.45% w/o.
+# Suggests overhead of (17-10.45)/4 = 1.6375% for each ProfileStream.
+
+# Got overhead down to 1.3125% with small optimizations.
+
+# Got down to 0.7275% by avoiding lookups in ProfileStream.
+# 0.645% by sticking self.entry in a local.
+# Considering silence itself only takes around 0.55% of the budget, I don't think I'll get the overhead much lower than that.
+
+# Refactored: profile changed from function to class.
+# Moved ProfileStream.{data, reset, dump} to profile.
