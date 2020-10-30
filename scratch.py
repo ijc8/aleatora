@@ -50,3 +50,63 @@ play(cycle(rand / 20 * adsr(0.05, 0.05, 0.2, 0.2, 0.01)))
 
 # Amazing:
 # play(resample(basic_sequencer(arp(C('C7', oct=5, inv=1)), bpm=350), osc(0.1)/2 + 1))
+
+# Hm.
+# I guess 'mixing' two event streams should work like merging two sorted lists.
+# That is, the resulting event stream should still be in chronological order.
+
+
+
+# play(resample(cycle(m), osc(5)/10 + 2))
+# play(basic_sequencer(arp(c), bpm=10))
+# play(basic_sequencer(arp(c), bpm=20))
+# play(basic_sequencer(arp(c), bpm=20) + basic_sequencer(arp(c), bpm=30))
+# play(resample(basic_sequencer(arp(C('C7', oct=5, inv=1)), bpm=10), osc(0.1)/10 + 1)/2)
+
+# addplay(resample(basic_sequencer(arp(C('C7', oct=5, inv=1)), bpm=350), osc(0.1)/2 + 1)/2)
+
+# 10/29
+shaker = cycle(fit(rand * adsr(0.05, 0.05, 0.2, 0.2, 0.01), 60 / (120 * 2)))
+play(shaker)
+
+phrase1 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (59, 1/16), (0, 1/16)]
+
+phrase2 = [(60, 1/16), (0, 2/16), (60, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (0, 2/16), (58, 1/16), (0, 2/16), (57, 1/16), (0, 1/16),
+           (58, 1/16), (57, 1/16), (55, 1/16), (53, 1/16), (55, 1/16), (58, 1/16), (0, 2/16)]
+
+riff = basic_sequencer(cycle(list_to_stream(phrase1 + phrase2)), bpm=120)
+play(riff)
+
+riff = cycle(freeze(basic_sequencer(list_to_stream(phrase1 + phrase2), bpm=120)))
+# riff = freeze(basic_sequencer(list_to_stream(phrase1 + phrase2), bpm=120))
+# Frozen streams should implement __len__.
+play(riff)
+
+import filters
+play(filters.bpf(riff, 650 * osc(0.25) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(1) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(2) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(4) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(8) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(16) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(128) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(512) + 700, 0.7))
+play(filters.bpf(riff, 650 * osc(2048) + 700, 0.7))
+
+play(filters.bpf(shaker + riff, 650 * osc(0.25) + 700, 2))
+play(filters.bpf(shaker + riff, 650 * osc(1) + 700, 2))
+play(filters.bpf(shaker + riff, 650 * osc(2) + 700, 2))
+play(filters.bpf(shaker + riff, 650 * osc(4) + 700, 2))
+play(filters.bpf(shaker + riff, 650 * osc(8) + 700, 2))  # <-- !
+play(filters.bpf(shaker + riff, 650 * osc(16) + 700, 2))
+
+play(filters.bpf((shaker + riff)[:8.0], 650 * osc(8) + 700, 1.7))
+save(filters.bpf((shaker + riff)[:8.0], 650 * osc(8) + 700, 1.7)/10, 'funky.wav', verbose=True)
+
+play(osc(440)[:1.0])
+save(osc(440)[:1.0], 'test.wav')

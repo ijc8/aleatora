@@ -273,6 +273,9 @@ def count(start=0):
 def repeat(value):
     return lambda: (value, repeat(value))
 
+# Alias. Perhaps this should just be the name.
+const = repeat
+
 silence = namify("silence", repeat(0))
 
 @stream("memoize")
