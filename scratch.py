@@ -110,3 +110,114 @@ save(filters.bpf((shaker + riff)[:8.0], 650 * osc(8) + 700, 1.7)/10, 'funky.wav'
 
 play(osc(440)[:1.0])
 save(osc(440)[:1.0], 'test.wav')
+
+
+from core import *
+from audio import *
+from chord import *
+
+play(basic_sequencer(list_to_stream([(60, 0.25)])))
+
+print(C('C'))
+
+def transpose(pc, interval):
+    index = PITCH_CLASSES.index(PITCH_CLASS_ALIASES.get(pc, pc))
+    index = (index + interval) % len(PITCH_CLASSES)
+    return PITCH_CLASSES[index]
+
+def relative_minor(pc):
+    return transpose(pc, 9).lower()
+
+notes = []
+chord = 'C'
+for i in range(12):
+    for root in (chord, relative_minor(chord)):
+        for oct in (3, 4, 5, 6):
+            notes += C(root, oct=oct).notes
+    chord = transpose(chord, 5)
+
+arps = freeze(basic_sequencer((list_to_stream(notes)).map(lambda p: (p, 1/16)), bpm=120))
+
+bass = basic_sequencer(list_to_stream([(36, 10)]))
+noise = rand * (count()[:10.0]/441000 >> const(1))
+play(cycle(arps)/2 + bass/2)
+
+
+import time
+
+
+class ProfileStream(Stream):
+    data = {}
+
+    def __init__(self, key, stream):
+        if key not in ProfileStream.data:
+            ProfileStream.data[key] = {
+                'calls': 0,
+                'ends': 0,
+                'wall': 0.0,
+                'proc': 0.0,
+            }
+        self.key = key
+        self.stream = stream
+
+    def __call__(self):
+        wall_start = time.perf_counter()
+        proc_start = time.process_time()
+        result = self.stream()
+        wall_end = time.perf_counter()
+        proc_end = time.process_time()
+
+        entry = ProfileStream.data[self.key]
+        entry['calls'] += 1
+        entry['wall'] += wall_end - wall_start
+        entry['proc'] += proc_end - proc_start
+
+        if isinstance(result, Return):
+            entry['ends'] += 1
+            return result
+        x, next_stream = result
+        return (x, ProfileStream(self.key, next_stream))
+
+    @staticmethod
+    def reset():
+        ProfileStream.data.clear()
+
+    @staticmethod
+    def dump():
+        print(f"Real-time budget: {1e6/core.SAMPLE_RATE:.3f}us per sample")
+        for key, entry in ProfileStream.data.items():
+            wall_avg = entry['wall'] / entry['calls']
+            proc_avg = entry['proc'] / entry['calls']
+            print(f"{key}: {entry['calls']} CALLS ({entry['ends']} ENDINGS)")
+            print(f"{' ' * len(key)}  PROC: {proc_avg*1e6:.3f}us avg | {entry['proc']:.3f}s total")
+            print(f"{' ' * len(key)}  WALL: {wall_avg*1e6:.3f}us avg | {entry['wall']:.3f}s total | {wall_avg*core.SAMPLE_RATE*100:.2f}% of budget")
+
+
+ProfileStream.reset()
+ProfileStream.dump()
+
+_ = list(ProfileStream("osc", osc(440))[:5.0])
+
+_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)))[:5.0])
+
+_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)) + ProfileStream("osc 3", osc(880)))[:5.0])
+
+_ = list(ProfileStream("mix", ProfileStream("osc 1", osc(440)) + ProfileStream("osc 2", osc(660)) + ProfileStream("osc 3", osc(880)) + ProfileStream("osc 4", osc(1100)))[:5.0])
+
+_ = list(ProfileStream("mix", osc(440) + osc(660) + osc(880) + osc(1100))[:5.0])
+
+_ = list(ProfileStream("zero", silence)[:5.0])
+
+# Notes:
+# - Things take up more time/budget when played live.
+#   (Doesn't look like it matters if sounddevice is merely playing silence, though.)
+# - One osc takes about 4% of budget.
+#   This suggests a max of 25 simultaneous oscillators for real-time playback.
+#   (Less than that in reality due to overhead of combining operations)
+# - ProfileStream itself has high overhead, which makes it harder to estimate container performance.
+#   For example, mix with four oscillators appears to take 50% of budget (including children)
+#   when the osc's are wrapped with ProfileStream, but it only takes 15% of the budget with unwrapped osc's.
+#   This suggests each ProfileStream consumes (50-15)/4 = about 9% of the budget!
+# - Also, this implies mix has surprisingly little cost... or that the timing operations are slow.
+# - Bizarrely, silence has a practically identical profiling result to osc.
+#   This suggests either the stream call overhead or the timing operations far outweigh the actual computation.
