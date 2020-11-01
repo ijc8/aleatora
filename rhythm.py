@@ -42,7 +42,7 @@ def euclid(onsets, slots, offset=0):
         counter += onsets
         if counter >= slots:
             counter -= slots
-            s += 'X'
+            s += 'x'
         else:
             s += '.'
     return s
@@ -51,12 +51,26 @@ def str_to_rhythm(s, mapping):
     # TODO: support nesting?
     return [mapping[c] for c in s]
 
-snare_rhythm = str_to_rhythm(euclid(5, 16), {'X': snare, '.': None})
+snare_rhythm = str_to_rhythm(euclid(5, 16), {'x': snare, '.': None})
 snare_events = mult_event_times(rhythm_to_events(snare_rhythm), 2.0)
 snare_track = freeze(events_to_stream(snare_events))
 
-kick_rhythm = str_to_rhythm(euclid(4, 16), {'X': kick, '.': None})
+kick_rhythm = str_to_rhythm(euclid(4, 16), {'x': kick, '.': None})
 kick_events = mult_event_times(rhythm_to_events(kick_rhythm), 2.0)
 kick_track = freeze(events_to_stream(kick_events))
 
-play(cycle(snare_track) + cycle(kick_track))
+# play(cycle(snare_track) + cycle(kick_track))
+
+def beat(str, stream, rpm=30):
+    events = rhythm_to_events(str_to_rhythm(str, {'x': stream, '.': None}))
+    return events_to_stream(mult_event_times(events, 60 / rpm))
+
+
+from core import *
+from audio import *
+play(osc(40))
+play(osc(39), osc(41))
+play(ZipStream([osc(440), osc(660)]))
+play()
+
+play(cycle(beat('xxx.xx.x.xx.', snare)), cycle(beat('x.xx.xxx.xx.', snare)))
