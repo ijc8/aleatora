@@ -192,3 +192,85 @@ _ = list(profile("zero", silence)[:10.0])
 
 # (Unsurprisingly, looks like performance numbers are much worse in CPython.)
 
+from core import *
+from audio import *
+import wav
+import random
+
+def branch(choices, default=empty):
+    # choices is list [(weight, stream)]
+    def closure():
+        x = random.random()
+        acc = 0
+        for weight, stream in choices:
+            acc += weight
+            if acc >= x:
+                return stream()
+        return default()
+    return closure
+
+def flip(a, b):
+    return branch([(0.5, a), (0.5, b)])
+
+start = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/start.wav"))
+a = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/a.wav"))
+b = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/b.wav"))
+c = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/c.wav"))
+d = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/d.wav"))
+
+graph = start >> flip(
+    a >> flip(b >> (lambda: graph()), lambda: graph()),
+    c >> flip(d >> (lambda: graph()), lambda: graph())
+)
+
+
+play()
+play((graph + graph + graph) / 2)
+play(graph, resample(graph, const(0.95)))
+addplay(graph)
+
+def pan(stream, pos):
+    return stream.map(lambda x: (x * (1 - pos), x * pos))
+
+# This would be more convenient, but unfortunately numpy is incredibly slow
+# (at least compared to PyPy's built-in operations) when used for many tiny computations.
+# Therefore, I think the right solution will be a kind of specialized ZipStream that overrides the math operators.
+# (StereoStream? MultiStream?)
+def nppan(stream, pos):
+    return stream.map(lambda x: np.array([x * (1 - pos), x * pos]))
+
+def modpan(stream, pos_stream):
+    return ZipStream((stream, pos_stream)).map(lambda p: (p[0] * (1 - p[1]), p[0] * p[1]))
+
+play(modpan(graph, (osc(0.1) + 1)/2))
+
+
+tree = start >> flip(
+    a >> flip(b, empty),
+    c >> flip(d, empty)
+)
+
+graph = tree >> (lambda: ((graph + graph)/2)())
+wav.save(graph[:20.0], "graph.wav", verbose=True)
+
+play()
+play(graph)
+
+profile.dump()
+profile.reset()
+
+# Bizarre. graph appears extremely light (.47%), but graph + graph takes 52.71%!
+_ = list(profile("graph", graph + graph)[:10.0])
+_ = list(profile("pan", pan(silence, 0.5))[:10.0])
+_ = list(profile("pansum", ZipStream((pan(silence, 0.5), pan(silence, 0.5))).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1])))[:10.0])
+_ = list(profile("pansum2", ZipStream((nppan(silence, 0.5), nppan(silence, 0.5))).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1])))[:10.0])
+_ = list(profile("pansum3", nppan(silence, 0.5) + nppan(silence, 0.5))[:10.0])
+
+# Similarly: a is cheap, b is cheap, osc(X) + osc(Y) is cheap, and yet a + b is incredibly expensive??
+_ = list(profile("a", a)[:10.0])
+_ = list(profile("b", b)[:10.0])
+_ = list(profile("sum", a + b)[:10.0])
+_ = list(profile("sum2", osc(440) + osc(660))[:10.0])
+
+# Figured it out. They were yielding length-1 numpy arrays because I used wav.load instead of wav.load_mono.
+# Worth noting that these are still yielding numpy numeric types (numpy.float64), which has seems like an issue for performance.
