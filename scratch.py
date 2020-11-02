@@ -195,22 +195,6 @@ _ = list(profile("zero", silence)[:10.0])
 from core import *
 from audio import *
 import wav
-import random
-
-def branch(choices, default=empty):
-    # choices is list [(weight, stream)]
-    def closure():
-        x = random.random()
-        acc = 0
-        for weight, stream in choices:
-            acc += weight
-            if acc >= x:
-                return stream()
-        return default()
-    return closure
-
-def flip(a, b):
-    return branch([(0.5, a), (0.5, b)])
 
 start = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/start.wav"))
 a = list_to_stream(wav.load_mono("/home/ian/code/aleatora/samples/a.wav"))
@@ -223,14 +207,10 @@ graph = start >> flip(
     c >> flip(d >> (lambda: graph()), lambda: graph())
 )
 
-
 play()
 play((graph + graph + graph) / 2)
 play(graph, resample(graph, const(0.95)))
 addplay(graph)
-
-def pan(stream, pos):
-    return stream.map(lambda x: (x * (1 - pos), x * pos))
 
 # This would be more convenient, but unfortunately numpy is incredibly slow
 # (at least compared to PyPy's built-in operations) when used for many tiny computations.
@@ -243,25 +223,6 @@ def modpan(stream, pos_stream):
     return ZipStream((stream, pos_stream)).map(lambda p: (p[0] * (1 - p[1]), p[0] * p[1]))
 
 play(modpan(graph, (osc(0.1) + 1)/2))
-
-
-tree = start >> flip(
-    a >> flip(b, empty),
-    c >> flip(d, empty)
-)
-
-graph = tree >> (lambda: ((graph + graph)/2)())
-wav.save(graph[:20.0], "graph.wav", verbose=True)
-
-def stereo_add(self, other):
-    if isinstance(other, Stream):
-        # assumes self and other return tuples representing multiple channels.
-        return ZipStream((self, other)).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1]))
-    else:
-        return self.map(lambda p: (p[0] + other, p[1] + other))
-
-play()
-# play(stereo_add(pan(osc(440)/2, 0.2), pan(osc(660)/2, 1.0)))
 
 # hm. can we get a clever way to cast a Stream to a StereoStream?
 # otherwise, we're paying overhead simply for the syntactic sugar of __add__.
@@ -283,22 +244,6 @@ class StereoStream(Stream):
 
 play()
 play(graph)
-
-# First attempt. Initial panning: 0.5; children panning: random.
-def layer(pos):
-    return pan(tree, pos) >> (lambda: stereo_add(layer(pos), layer(random.random()))())
-
-def normalize(stream):
-    # Requires evaluating the whole stream to determine the max volume.
-    print('Rendering...')
-    t = time.time()
-    l = np.array(list(stream))
-    print('Done in', time.time() - t)
-    peak = np.max(np.abs(l))
-    return list_to_stream(l / peak)
-
-play(layer(0.5))
-wav.save(normalize(layer(0.5)[:45.0]), "layers2.wav", verbose=True)
 
 profile.dump()
 profile.reset()

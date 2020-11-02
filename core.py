@@ -1,7 +1,9 @@
-import math
 import numpy as np
+
+import math
 import time
 import operator
+import random
 
 
 # This is the default sample rate, but it may be modified by audio module to
@@ -439,7 +441,6 @@ def tri(freq):
     return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
 
 
-import random
 rand = Stream(lambda: (random.random(), rand))
 
 
@@ -502,3 +503,37 @@ def peek(stream, default=None):
     x, rest = result
     # "Unpeek". Overhead disappears after first sample.
     return (x, list_to_stream([x]) >> rest)
+
+
+def branch(choices, default=empty):
+    # choices is list [(weight, stream)]
+    def closure():
+        x = random.random()
+        acc = 0
+        for weight, stream in choices:
+            acc += weight
+            if acc >= x:
+                return stream()
+        return default()
+    return closure
+
+def flip(a, b):
+    return branch([(0.5, a), (0.5, b)])
+
+def pan(stream, pos):
+    return stream.map(lambda x: (x * (1 - pos), x * pos))
+
+# TODO: Make this more elegant.
+# e.g. variant of ZipStream that yields a special type (with overloaded arithmetic) rather than tuples.
+def stereo_add(self, other):
+    return ZipStream((self, other)).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1]))
+
+def normalize(stream):
+    # Requires evaluating the whole stream to determine the max volume.
+    # Works for any number of channels.
+    print('Rendering...')
+    t = time.time()
+    l = np.array(list(stream))
+    print('Done in', time.time() - t)
+    peak = np.max(np.abs(l))
+    return list_to_stream(l / peak)
