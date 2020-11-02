@@ -253,8 +253,52 @@ tree = start >> flip(
 graph = tree >> (lambda: ((graph + graph)/2)())
 wav.save(graph[:20.0], "graph.wav", verbose=True)
 
+def stereo_add(self, other):
+    if isinstance(other, Stream):
+        # assumes self and other return tuples representing multiple channels.
+        return ZipStream((self, other)).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1]))
+    else:
+        return self.map(lambda p: (p[0] + other, p[1] + other))
+
+play()
+# play(stereo_add(pan(osc(440)/2, 0.2), pan(osc(660)/2, 1.0)))
+
+# hm. can we get a clever way to cast a Stream to a StereoStream?
+# otherwise, we're paying overhead simply for the syntactic sugar of __add__.
+class StereoStream(Stream):
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __call__(self):
+        result = self.stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, MapStream(next_stream, self.fn))
+
+    __add__ = stereo_add
+
+# aha! I think the right approach is NOT to make a new kind of stream, but to make a new kind of tuple.
+# then the existing operators will continue to work.
+
 play()
 play(graph)
+
+# First attempt. Initial panning: 0.5; children panning: random.
+def layer(pos):
+    return pan(tree, pos) >> (lambda: stereo_add(layer(pos), layer(random.random()))())
+
+def normalize(stream):
+    # Requires evaluating the whole stream to determine the max volume.
+    print('Rendering...')
+    t = time.time()
+    l = np.array(list(stream))
+    print('Done in', time.time() - t)
+    peak = np.max(np.abs(l))
+    return list_to_stream(l / peak)
+
+play(layer(0.5))
+wav.save(normalize(layer(0.5)[:45.0]), "layers2.wav", verbose=True)
 
 profile.dump()
 profile.reset()

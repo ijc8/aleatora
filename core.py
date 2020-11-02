@@ -184,6 +184,7 @@ class ZipStream(Stream):
 
 class SliceStream(Stream):
     def __init__(self, stream, start, stop, step):
+        # TODO: should start (drop) be eager?
         # Negative values are unsupported.
         assert(start is None or start >= 0)
         assert(stop is None or stop >= 0)
@@ -490,3 +491,14 @@ def freeze(stream):
     r = list_to_stream(list(stream))
     print('Done in', time.time() - t)
     return r
+
+
+# Essentially a partial freeze of length 1.
+# Useful for determining the number of channels automatically.
+def peek(stream, default=None):
+    result = stream()
+    if isinstance(result, Return):
+        return (default, lambda: result)
+    x, rest = result
+    # "Unpeek". Overhead disappears after first sample.
+    return (x, list_to_stream([x]) >> rest)

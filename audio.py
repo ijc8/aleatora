@@ -88,6 +88,7 @@ def play_callback(outdata, frames, time, status):
 # play(a) -> plays the stream a, which may have one or more channels
 # play(a, b) -> plays the mono streams a, b together in stereo
 
+
 def play(*composition):
     global _samples
     if len(composition) > 1:
@@ -97,13 +98,8 @@ def play(*composition):
     else:
         composition = composition[0] if composition else core.silence
         # Peek ahead to determine the number of channels automatically.
-        result = composition()
-        if isinstance(result, core.Return):
-            return
-        x, rest = result
-        channels = getattr(x, '__len__', lambda: 1)()
-        # "Unpeek". Overhead disappears after first sample.
-        composition = core.list_to_stream([x]) >> rest
+        sample, composition = core.peek(composition)
+        channels = getattr(sample, '__len__', lambda: 1)()
     if not _setup or _channels != channels:
         setup(channels=channels)
     _samples = iter(composition >> core.silence)
