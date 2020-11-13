@@ -9,10 +9,10 @@ import time
 #
 # from core import *
 # from prof import profile
-# _ = list(profile(osc(440)[:10.0]))
+# _ = list(profile('osc', osc(440)[:10.0]))
 # profile.dump()
 # profile.reset()
-# _ = list(profile((osc(440) + osc(660)[:10.0]))
+# _ = list(profile('mix', (osc(440) + osc(660)[:10.0]))
 
 
 class ProfileStream(core.Stream):

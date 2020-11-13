@@ -263,3 +263,148 @@ _ = list(profile("sum2", osc(440) + osc(660))[:10.0])
 
 # Figured it out. They were yielding length-1 numpy arrays because I used wav.load instead of wav.load_mono.
 # Worth noting that these are still yielding numpy numeric types (numpy.float64), which has seems like an issue for performance.
+
+# Profiling different kinds of mixing:
+def add(self, other):
+    return ZipStream((self, other)).map(lambda p: p[0] + p[1])
+
+from prof import profile
+
+_ = list(profile('s+', stereo_add(pan(silence, 0), pan(silence, 1)))[:10.0])
+_ = list(profile('s++', stereo_add(pan(silence, 0.5), stereo_add(pan(silence, 0), pan(silence, 1))))[:10.0])
+_ = list(profile('s+++', stereo_add(pan(silence, 0), stereo_add(pan(silence, 0.5), stereo_add(pan(silence, 0), pan(silence, 1)))))[:10.0])
+_ = list(profile('a+', add(silence, silence))[:10.0])
+_ = list(profile('a++', add(silence, add(silence, silence)))[:10.0])
+_ = list(profile('a+++', add(silence, add(silence, add(silence, silence))))[:10.0])
+_ = list(profile('+', silence + silence)[:10.0])
+_ = list(profile('++', silence + silence + silence)[:10.0])
+_ = list(profile('+++', silence + silence + silence + silence)[:10.0])
+profile.reset()
+profile.dump()
+
+# Results:
+#
+# Real-time budget: 22.676us per sample
+# s+: 441000 calls (0 endings)
+#     0.814us avg | 0.359s total | 3.59% of budget
+# s++: 441000 calls (0 endings)
+#      1.347us avg | 0.594s total | 5.94% of budget
+# s+++: 441000 calls (0 endings)
+#       1.961us avg | 0.865s total | 8.65% of budget
+# a+: 441000 calls (0 endings)
+#     0.712us avg | 0.314s total | 3.14% of budget
+# a++: 441000 calls (0 endings)
+#      1.368us avg | 0.603s total | 6.03% of budget
+# a+++: 441000 calls (0 endings)
+#       2.669us avg | 1.177s total | 11.77% of budget
+# +: 441000 calls (0 endings)
+#    0.785us avg | 0.346s total | 3.46% of budget
+# ++: 441000 calls (0 endings)
+#     0.875us avg | 0.386s total | 3.86% of budget
+# +++: 441000 calls (0 endings)
+#      0.972us avg | 0.428s total | 4.28% of budget
+
+# Makes sense. Some extra overhead up front for MixStream, but the cost grows much more slowly than nesting add()'s.
+
+# Container for multiple samples. Usage is similar to ndarray.
+def make_frame_op(op, reversed=False):
+    if reversed:
+        def fn(self, other):
+            if isinstance(other, frame):
+                return frame(map(op, other, self))
+            return frame(op(other, x) for x in self)
+        return fn
+    def fn(self, other):
+        if isinstance(other, frame):
+            return frame(map(op, self, other))
+        return frame(op(x, other) for x in self)
+    return fn
+
+
+# NOTE: Could make this faster for the stereo case by specializing for the 2-channel frame.
+
+
+class frame(tuple):
+    __add__ = make_frame_op(operator.add)
+    __radd__ = make_frame_op(operator.add, reversed=True)
+    __sub__ = make_frame_op(operator.sub)
+    __rsub__ = make_frame_op(operator.sub, reversed=True)
+    __mul__ = make_frame_op(operator.mul)
+    __rmul__ = make_frame_op(operator.mul, reversed=True)
+    __matmul__ = make_frame_op(operator.matmul)
+    __rmatmul__ = make_frame_op(operator.matmul, reversed=True)
+    __truediv__ = make_frame_op(operator.truediv)
+    __rtruediv__ = make_frame_op(operator.truediv, reversed=True)
+    __floordiv__ = make_frame_op(operator.floordiv)
+    __rfloordiv__ = make_frame_op(operator.floordiv, reversed=True)
+    __mod__ = make_frame_op(operator.mod)
+    __rmod__ = make_frame_op(operator.mod, reversed=True)
+    __pow__ = make_frame_op(operator.pow)
+    __rpow__ = make_frame_op(operator.pow, reversed=True)
+    __lshift__ = make_frame_op(operator.lshift)
+    __rlshift__ = make_frame_op(operator.lshift, reversed=True)
+    __rshift__ = make_frame_op(operator.rshift)
+    __rrshift__ = make_frame_op(operator.rshift, reversed=True)
+    __and__ = make_frame_op(operator.and_)
+    __rand__ = make_frame_op(operator.and_, reversed=True)
+    __xor__ = make_frame_op(operator.xor)
+    __rxor__ = make_frame_op(operator.xor, reversed=True)
+    __or__ = make_frame_op(operator.or_)
+    __ror__ = make_frame_op(operator.or_, reversed=True)
+    def __neg__(self): return frame(map(operator.neg, self))
+    def __pos__(self): return frame(map(operator.pos, self))
+    def __abs__(self): return frame(map(operator.abs, self))
+    def __invert__(self): return frame(map(operator.invert, self))
+
+    def __repr__(self):
+        return f"frame({super().__repr__()})"
+
+    def __str__(self):
+        return f"frame({super().__str__()})"
+
+
+def pan(stream, pos):
+    return stream.map(lambda x: frame((x * (1 - pos), x * pos)))
+
+
+_ = list(profile('s+', stereo_add(pan(silence, 0), pan(silence, 1)))[:10.0])
+_ = list(profile('s++', stereo_add(pan(silence, 0.5), stereo_add(pan(silence, 0), pan(silence, 1))))[:10.0])
+_ = list(profile('s+++', stereo_add(pan(silence, 0), stereo_add(pan(silence, 0.5), stereo_add(pan(silence, 0), pan(silence, 1)))))[:10.0])
+_ = list(profile('a+', add(fpan(silence, 0), fpan(silence, 1)))[:10.0])
+_ = list(profile('a++', add(fpan(silence, 0.5), add(fpan(silence, 0), fpan(silence, 1))))[:10.0])
+_ = list(profile('a+++', add(fpan(silence, 0), add(fpan(silence, 0.5), add(fpan(silence, 0), fpan(silence, 1)))))[:10.0])
+_ = list(profile('+', fpan(silence, 0) + fpan(silence, 1))[:10.0])
+_ = list(profile('++', fpan(silence, 0.5) + fpan(silence, 0) + fpan(silence, 1))[:10.0])
+_ = list(profile('+++', fpan(silence, 0) + fpan(silence, 0.5) + fpan(silence, 0) + fpan(silence, 1))[:10.0])
+profile.reset()
+profile.dump()
+
+# General frame:
+# a+: 441000 calls (0 endings)
+#     1.280us avg | 0.565s total | 5.65% of budget
+# a++: 441000 calls (0 endings)
+#      2.538us avg | 1.119s total | 11.19% of budget
+# a+++: 441000 calls (0 endings)
+#       2.702us avg | 1.191s total | 11.91% of budget
+# +: 441000 calls (0 endings)
+#    1.450us avg | 0.640s total | 6.40% of budget
+# ++: 441000 calls (0 endings)
+#     1.845us avg | 0.814s total | 8.14% of budget
+# +++: 441000 calls (0 endings)
+#      2.471us avg | 1.090s total | 10.90% of budget
+
+# Two-channel frame:
+# a+: 441000 calls (0 endings)
+#     0.781us avg | 0.344s total | 3.44% of budget
+# a++: 441000 calls (0 endings)
+#      1.387us avg | 0.612s total | 6.12% of budget
+# a+++: 441000 calls (0 endings)
+#       2.061us avg | 0.909s total | 9.09% of budget
+# +: 441000 calls (0 endings)
+#    1.210us avg | 0.533s total | 5.33% of budget
+# ++: 441000 calls (0 endings)
+#     1.880us avg | 0.829s total | 8.29% of budget
+# +++: 441000 calls (0 endings)
+#      1.519us avg | 0.670s total | 6.70% of budget
+
+# For

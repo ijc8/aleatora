@@ -97,7 +97,13 @@ class Stream:
     __pow__ = make_stream_op(operator.pow)
     __rpow__ = make_stream_op(operator.pow, reversed=True)
 
-    # The bitwise operators so that I may repurpose them, as in the case of `>>` above.
+    # Unary operators
+    def __neg__(self): return self.map(operator.neg)
+    def __pos__(self): return self.map(operator.pos)
+    def __abs__(self): return self.map(operator.abs)
+    def __invert__(self): return self.map(operator.invert)
+
+    # The bitwise operators are omitted so that I may repurpose them, as in the case of `>>` above.
 
     def __getitem__(self, index):
         if isinstance(index, int):
