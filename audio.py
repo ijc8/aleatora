@@ -9,7 +9,7 @@ import traceback
 
 
 # Non-interactive version; blocking, cleans up and returns when the composition is finished.
-def run(composition):
+def run(composition, blocksize=0):
     samples = iter(composition)
 
     def callback(outdata, frames, time, status):
@@ -19,7 +19,7 @@ def run(composition):
             print("Finished playing.")
             raise sd.CallbackStop
 
-    with sd.OutputStream(channels=1, callback=callback) as stream:
+    with sd.OutputStream(channels=1, callback=callback, blocksize=blocksize) as stream:
         core.SAMPLE_RATE = stream.samplerate
         try:
             while True:
