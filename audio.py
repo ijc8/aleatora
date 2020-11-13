@@ -47,6 +47,7 @@ def _cleanup():
 # Public:
 
 def volume(vol=None):
+    global _volume
     if vol is not None:
         _volume = vol
     return _volume
