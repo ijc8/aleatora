@@ -122,6 +122,9 @@ class Stream:
     def __str__(self):
         return "Mystery Stream"
 
+    def inspect(self):
+        return {"name": str(self), "parameters": {}}
+
 
 class ConcatStream(Stream):
     def __init__(self, streams):
@@ -143,6 +146,17 @@ class ConcatStream(Stream):
 
     def __str__(self):
         return ' >> '.join(map(str, self.streams))
+
+    def inspect(self):
+        return {
+            "name": "concat",
+            "parameters": {},
+            "children": {
+                "streams": self.streams,
+                "direction": "left-right",
+                "separator": ">>",
+            }
+        }
 
 concat = ConcatStream
 
@@ -171,6 +185,17 @@ class MixStream(Stream):
     def __str__(self):
         return ' + '.join(map(str, self.streams))
 
+    def inspect(self):
+        return {
+            "name": "mix",
+            "parameters": {},
+            "children": {
+                "streams": self.streams,
+                "direction": "top-down",
+                "separator": "+",
+            }
+        }
+
 
 class MapStream(Stream):
     def __init__(self, stream, fn):
@@ -187,6 +212,17 @@ class MapStream(Stream):
 
     def __str__(self):
         return f"{self.stream}.map({self.fn})"
+
+    def inspect(self):
+        return {
+            "name": "map",
+            "parameters": {"fn": self.fn},
+            "children": {
+                "streams": (self.stream,),
+                "direction": "top-down",
+                "separator": "",
+            }
+        }
 
 
 class ZipStream(Stream):

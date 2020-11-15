@@ -1,4 +1,4 @@
-from graphviz import Digraph
+# from graphviz import Digraph
 from pprint import pprint
 from core import *
 import matplotlib.pyplot as plt
@@ -153,6 +153,29 @@ def graph(stream):
     root.render(view=True)
     return root
 
+import html
+
+def to_html(obj):
+    if isinstance(obj, Stream):
+        info = obj.inspect()
+        params = ''.join(f"<li>{name} = {to_html(value)}</li>" for name, value in info['parameters'].items())
+        if params:
+            params = f"<h2>Parameters:</h2><ul>{params}</ul>"
+        children = ''
+        if 'children' in info:
+            direction = info['children']['direction']
+            streams = info['children']['streams']
+            separator = f"<span>{html.escape(info['children']['separator'])}</span>"
+            children = f'<div class="{direction}">{separator.join(to_html(stream) for stream in streams)}</div>'
+        return f'<div class="node"><p class="name">{info["name"]}</p>{params}{children}</div>'
+    elif isinstance(obj, tuple):
+        lst = ''.join(f"<li>{to_html(value)}</li>" for value in obj)
+        return f"<ul>{lst}</ul>"
+    elif isinstance(obj, list):
+        return "[list]"
+    else:
+        return html.escape(str(obj))
+
 # Not really related to the above functions, but on the general theme of visualizing:
 def plot(stream):
     plt.plot(list(stream))
@@ -164,3 +187,72 @@ def plot_spectrum(stream):
     print(len(samples), len(x), len(np.fft.fft(samples)), len(np.fft.rfft(samples)))
     plt.plot(x, np.abs(np.fft.rfft(samples)))
     plt.show(block=False)
+
+
+# Experimental work on an inspector server.
+import subprocess
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+
+PORT = 7004
+HOST = '127.0.0.1'
+SERVER_ADDRESS = '{host}:{port}'.format(host=HOST, port=PORT)
+FULL_SERVER_ADDRESS = 'http://' + SERVER_ADDRESS
+
+server_content = "Hello!"
+
+class HTTPServerRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Handle GET requests"""
+
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(server_content.encode('utf8'))
+        elif self.path == '/style.css':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/css')
+            self.end_headers()
+            with open('style.css', 'rb') as f:
+                self.wfile.write(f.read())
+
+HTTPServer.allow_reuse_address = True
+
+httpd = None
+
+def start_server_blocking():
+    global httpd
+    httpd = HTTPServer((HOST, PORT), HTTPServerRequestHandler)
+    webbrowser.open(FULL_SERVER_ADDRESS)
+    httpd.serve_forever()
+
+def start_server():
+    server_thread = threading.Thread(target=start_server_blocking)
+    server_thread.setDaemon(True)
+    server_thread.start()
+    webbrowser.open(FULL_SERVER_ADDRESS)
+
+def stop_server():
+    httpd.shutdown()
+
+template = """
+<!doctype html>
+<html>
+    <head>
+        <title>Taper Assistant</title>
+        <link rel="stylesheet" href="style.css">
+    </head>
+    <body>
+        {}
+    </body>
+</html>
+"""
+
+def update_content(data):
+    global server_content
+    server_content = template.format(data)
+
+def inspect(stream):
+    update_content(to_html(stream))
