@@ -167,7 +167,12 @@ def to_html(obj):
             streams = info['children']['streams']
             separator = f"<span>{html.escape(info['children']['separator'])}</span>"
             children = f'<div class="{direction}">{separator.join(to_html(stream) for stream in streams)}</div>'
-        return f'<div class="node"><p class="name">{info["name"]}</p>{params}{children}</div>'
+        details = params + children
+        name = info['name']
+        if details:
+            details = f'<div class="details">{details}</div>'
+            name += ' <button onclick="expand(this)">+</button>'
+        return f'<div class="node"><h1>{name}</h1>{details}</div>'
     elif isinstance(obj, tuple):
         lst = ''.join(f"<li>{to_html(value)}</li>" for value in obj)
         return f"<ul>{lst}</ul>"
@@ -217,9 +222,18 @@ class HTTPServerRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             with open('style.css', 'rb') as f:
                 self.wfile.write(f.read())
+        elif self.path == '/assistant.js':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/javascript')
+            self.end_headers()
+            with open('assistant.js', 'rb') as f:
+                self.wfile.write(f.read())
 
 HTTPServer.allow_reuse_address = True
 
+# Hack for debugging:
+if 'httpd' in globals():
+    stop_server()
 httpd = None
 
 def start_server_blocking():
@@ -243,6 +257,7 @@ template = """
     <head>
         <title>Taper Assistant</title>
         <link rel="stylesheet" href="style.css">
+        <script src="assistant.js"></script>
     </head>
     <body>
         {}
@@ -256,3 +271,5 @@ def update_content(data):
 
 def inspect(stream):
     update_content(to_html(stream))
+
+start_server()

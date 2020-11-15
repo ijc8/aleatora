@@ -1,5 +1,6 @@
 import numpy as np
 
+import inspect
 import math
 import time
 import operator
@@ -283,71 +284,103 @@ class SliceStream(Stream):
 
 
 class NamedStream(Stream):
-    def __init__(self, name, fn, args=None, kwargs=None):
-        self.name = name
+    def __init__(self, namer, fn, args=None, kwargs=None, inspector=None):
+        self.namer = namer
         self.args = args
         self.kwargs = kwargs
+        self.inspector = inspector
         super().__init__(fn)
 
     def __str__(self):
-        if isinstance(self.name, str):
-            return self.name
-        return self.name(*self.args, **self.kwargs)
+        if isinstance(self.namer, str):
+            return self.namer
+        print("HEY")
+        print(self.namer, self.args, self.kwargs)
+        return self.namer(*self.args, **self.kwargs)
 
+    def inspect(self):
+        if self.inspector:
+            return self.inspector(*self.args, **self.kwargs)
+        else:
+            return {"name": str(self), "parameters": {}}
 
-# This wraps primitive streams (functions) and optionally names them. Assumes the decorated function is lazily recursive.
-def stream(name=None):
-    if name:
-        def wrapper(f):
-            return lambda *args, **kwargs: NamedStream(name, f(*args, **kwargs), args, kwargs)
-    else:
-        def wrapper(f):
-            return lambda *args, **kwargs: Stream(f(*args, **kwargs))
+def make_namer(fn):
+    def closure(*args, **kwargs):
+        args = inspect.signature(fn).bind(*args, **kwargs).arguments
+        return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
+    return closure
+
+def make_inspector(fn):
+    def closure(*args, **kwargs):
+        ba = inspect.signature(fn).bind(*args, **kwargs)
+        ba.apply_defaults()
+        return {
+            "name": fn.__name__,
+            "parameters": ba.arguments,
+        }
+    return closure
+
+# This wraps primitive streams (functions) and gives them namers/inspectors.
+# Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
+# Assumes the decorated function is lazily recursive.
+def raw_stream(f=None, namer=None, inspector=None):
+    def wrapper(f):
+        nonlocal namer, inspector
+        namer = namer or make_namer(f)
+        inspector = inspector or make_inspector(f)
+        return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
+    if f:
+        return wrapper(f)
     return wrapper
 
 # This is for naming complex streams, which do not refer to themselves.
-def namify(name, init_stream):
-    @stream(name=name)
-    def namer(stream):
+def namify(namer, inspector, init_stream):
+    @raw_stream(namer=namer, inspector=inspector)
+    def wrapper(stream):
         def closure():
             result = stream()
             if isinstance(result, Return):
                 return result
             value, next_stream = result
-            return (value, namer(next_stream))
+            return (value, wrapper(next_stream))
         return closure
-    return namer(init_stream)
+    return wrapper(init_stream)
 
 # Decorator version
-# NOTE: Unlike @stream, where specifying a name involves no additional layers of indirection,
+# NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
 #       this adds overhead because namify wraps an existing Stream (much like Map).
-def name(name):
+def stream(f=None, namer=None, inspector=None):
     def wrapper(f):
+        nonlocal namer, inspector
+        namer = namer or make_namer(f)
+        inspector = inspector or make_inspector(f)
         def inner(*args, **kwargs):
             init_stream = f(*args, **kwargs)
-            return namify(lambda *_, **__: name if isinstance(name, str) else name(*args, **kwargs), init_stream)
+            return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
         return inner
+    if f:
+        return wrapper(f)
     return wrapper
 
 
-@name(lambda stream: f"cycle({stream})")
+@stream
 def cycle(stream):
     cycled = ConcatStream(())
     cycled.streams = (stream, cycled)
     return cycled
 
-@stream(lambda start=0: f"count(start={start})")
+@raw_stream
 def count(start=0):
     return lambda: (start, count(start+1))
 
-@stream(lambda value: f"const({value})")
+@raw_stream
 def const(value):
     return lambda: (value, const(value))
 
 silence = const(0)
 ones = const(1)
 
-@stream(lambda stream: f"memoize({stream})")
+@raw_stream
 def memoize(stream):
     called = False
     saved = None
@@ -383,11 +416,11 @@ def list_to_stream(l):
         stream = (lambda x, r: Stream(lambda: (x, r)))(v, stream)
     return NamedStream("list", stream)
 
-@name(lambda freq: f"osc({freq})")
+@stream
 def osc(freq):
     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
 
-@name(lambda freq: f"sqr({freq})")
+@stream
 def sqr(freq):
     return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) > 0.5) * 2 - 1)
 
@@ -416,7 +449,7 @@ def m2f(midi):
 # TODO: define this in terms of a fold.
 # TODO: expose the freq_stream for inspection.
 #   This will probably require making this a class and rethinking how graph generation works.
-@stream(lambda freq_stream, phase=0: f"fm_osc({freq_stream}, phase={phase})")
+@raw_stream
 def fm_osc(freq_stream, phase=0):
     def closure():
         result = freq_stream()
@@ -429,7 +462,7 @@ def fm_osc(freq_stream, phase=0):
 # main = fm_osc(count() / 480 % 800)
 
 # TODO: Can we generate this kind of __str__ function automatically from function introspection?
-@stream(lambda fs, ht, tt, sf=0: f"glide({fs}, {ht}, {tt}, sf={sf})")
+@raw_stream
 def glide(freq_stream, hold_time, transition_time, start_freq=0):
     def closure():
         result = freq_stream()
@@ -443,7 +476,7 @@ def glide(freq_stream, hold_time, transition_time, start_freq=0):
     return closure
 
 
-@stream(lambda sos: f"lazy_concat({sos})")
+@raw_stream
 def lazy_concat(stream_of_streams):
     def closure():
         result = stream_of_streams()
@@ -488,7 +521,7 @@ def fit(stream, length):
 #     return closure
 
 # scanl, not scanr
-@stream(lambda stream, f, acc: f"scan({stream}, {f}, {acc})")
+@raw_stream
 def scan(stream, f, acc):
     def closure():
         result = stream()
@@ -499,15 +532,15 @@ def scan(stream, f, acc):
         return (acc, scan(next_stream, f, next_acc))
     return closure
 
-@name(lambda freq, duty: f"pulse({freq}, {duty})")
+@stream
 def pulse(freq, duty):
     return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
 
-@name(lambda freq_stream, duty: f"fm_pulse({freq_stream}, {duty})")
+@stream
 def fm_pulse(freq_stream, duty):
     return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: int(((phase/SAMPLE_RATE) % 1) < duty) * 2 - 1)
 
-@name(lambda freq: f"tri({freq})")
+@stream
 def tri(freq):
     return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
 
@@ -516,7 +549,7 @@ rand = NamedStream("rand", lambda: (random.random(), rand))
 
 
 # Stream-controlled resampler. Think varispeed.
-@stream(lambda stream, advance_stream, **_: f"resample({stream}, {advance_stream})")
+@raw_stream
 def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
     def closure():
         nonlocal stream, pos, sample, next_sample
@@ -537,7 +570,7 @@ def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
     return closure
 
 
-@stream(lambda stream, **_: f"interp({stream})")
+@raw_stream
 def interp(stream, time=0, prev_time=None, prev_value=None, next_time=0, next_value=0):
     # TODO: adopt a consistent policy re. this kind of convenience conversion
     if not isinstance(stream, Stream):
@@ -575,7 +608,7 @@ def peek(stream, default=None):
     # "Unpeek". Overhead disappears after first sample.
     return (x, list_to_stream([x]) >> rest)
 
-@stream(lambda choices, default=empty: f"branch({choices}, default={default})")
+@raw_stream
 def branch(choices, default=empty):
     # choices is list [(weight, stream)]
     def closure():
@@ -588,14 +621,17 @@ def branch(choices, default=empty):
         return default()
     return closure
 
+@stream
 def flip(a, b):
     return branch([(0.5, a), (0.5, b)])
 
+@stream
 def pan(stream, pos):
     return stream.map(lambda x: (x * (1 - pos), x * pos))
 
 # TODO: Make this more elegant.
 # e.g. variant of ZipStream that yields a special type (with overloaded arithmetic) rather than tuples.
+@stream
 def stereo_add(self, other):
     return ZipStream((self, other)).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1]))
 
