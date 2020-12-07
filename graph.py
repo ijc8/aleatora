@@ -155,10 +155,14 @@ def graph(stream):
 
 import html
 
-def to_html(obj):
+def to_html(obj, seen=frozenset()):
+    if obj in seen:
+        # TODO: point back to first occurence
+        return "<p>cycle!</p>"
+    seen = seen | {obj}
     if isinstance(obj, Stream):
         info = obj.inspect()
-        params = ''.join(f"<li>{name} = {to_html(value)}</li>" for name, value in info['parameters'].items())
+        params = ''.join(f"<li>{name} = {to_html(value, seen)}</li>" for name, value in info['parameters'].items())
         if params:
             params = f"<h2>Parameters:</h2><ul>{params}</ul>"
         children = ''
@@ -166,15 +170,19 @@ def to_html(obj):
             direction = info['children']['direction']
             streams = info['children']['streams']
             separator = f"<span>{html.escape(info['children']['separator'])}</span>"
-            children = f'<div class="{direction}">{separator.join(to_html(stream) for stream in streams)}</div>'
-        details = params + children
+            children = f'<div class="{direction}">{separator.join(to_html(stream, seen) for stream in streams)}</div>'
+        implementation = ''
+        print(info)
+        if 'implementation' in info:
+            implementation = f'<p>Implementation <button onclick="expand(this, \'implementation\')">+</button></p><div class="implementation">{to_html(info["implementation"])}</div>'
+        details = params + children + implementation
         name = info['name']
         if details:
             details = f'<div class="details">{details}</div>'
-            name += ' <button onclick="expand(this)">+</button>'
+            name += ' <button onclick="expand(this, \'details\')">+</button>'
         return f'<div class="node"><h1>{name}</h1>{details}</div>'
     elif isinstance(obj, tuple):
-        lst = ''.join(f"<li>{to_html(value)}</li>" for value in obj)
+        lst = ''.join(f"<li>{to_html(value, seen)}</li>" for value in obj)
         return f"<ul>{lst}</ul>"
     elif isinstance(obj, list):
         return "[list]"
@@ -229,16 +237,17 @@ class HTTPServerRequestHandler(BaseHTTPRequestHandler):
             with open('assistant.js', 'rb') as f:
                 self.wfile.write(f.read())
 
-HTTPServer.allow_reuse_address = True
+class ReusableAddressHTTPServer(HTTPServer):
+    allow_reuse_address = True
 
 # Hack for debugging:
-if 'httpd' in globals():
+if 'httpd' in globals() and httpd:
     stop_server()
 httpd = None
 
 def start_server_blocking():
     global httpd
-    httpd = HTTPServer((HOST, PORT), HTTPServerRequestHandler)
+    httpd = ReusableAddressHTTPServer((HOST, PORT), HTTPServerRequestHandler)
     webbrowser.open(FULL_SERVER_ADDRESS)
     httpd.serve_forever()
 
@@ -250,6 +259,7 @@ def start_server():
 
 def stop_server():
     httpd.shutdown()
+    httpd.server_close()
 
 template = """
 <!doctype html>

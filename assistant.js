@@ -1,5 +1,5 @@
-function expand(el) {
-    let details = el.closest("div").querySelector(".details")
+function expand(el, cls) {
+    let details = el.closest("div").querySelector("." + cls)
     if (details.style.display === "block") {
         details.style.display = "none"
         el.innerHTML = "+"

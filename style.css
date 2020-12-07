@@ -10,6 +10,10 @@ h2 {
     font-size: large;
 }
 
+div {
+    border-width: 0px;
+}
+
 .node {
     border: 1px solid black;
     padding: 10px;
@@ -34,4 +38,14 @@ span {
 
 .details {
     display: none;
+}
+
+.implementation {
+    color: gray;
+    display: none;
+}
+
+.implementation div {
+    border-color: gray;
+    border-style: dashed;
 }

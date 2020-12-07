@@ -282,6 +282,17 @@ class SliceStream(Stream):
     def __str__(self):
         return f"{self.stream}[{self.start or ''}:{self.stop or ''}:{self.step if self.step != 1 else ''}]"
 
+    def inspect(self):
+        return {
+            "name": "slice",
+            "parameters": {"start": self.start, "stop": self.stop, "step": self.step},
+            "children": {
+                "streams": (self.stream,),
+                "direction": "top-down",
+                "separator": "",
+            }
+        }
+
 
 class NamedStream(Stream):
     def __init__(self, namer, fn, args=None, kwargs=None, inspector=None):
@@ -294,8 +305,6 @@ class NamedStream(Stream):
     def __str__(self):
         if isinstance(self.namer, str):
             return self.namer
-        print("HEY")
-        print(self.namer, self.args, self.kwargs)
         return self.namer(*self.args, **self.kwargs)
 
     def inspect(self):
@@ -335,7 +344,11 @@ def raw_stream(f=None, namer=None, inspector=None):
 
 # This is for naming complex streams, which do not refer to themselves.
 def namify(namer, inspector, init_stream):
-    @raw_stream(namer=namer, inspector=inspector)
+    def _inspector(stream):
+        d = inspector()
+        d['implementation'] = stream
+        return d
+    @raw_stream(namer=namer, inspector=_inspector)
     def wrapper(stream):
         def closure():
             result = stream()
@@ -349,6 +362,8 @@ def namify(namer, inspector, init_stream):
 # Decorator version
 # NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
 #       this adds overhead because namify wraps an existing Stream (much like Map).
+# TODO: Avoid overhead by overwriting NamedStream.namer/inspector
+# Can potentially store the old values on NamedStream anyway, to allow peeking at implementation
 def stream(f=None, namer=None, inspector=None):
     def wrapper(f):
         nonlocal namer, inspector
@@ -372,6 +387,12 @@ def cycle(stream):
 @raw_stream
 def count(start=0):
     return lambda: (start, count(start+1))
+
+# @raw_stream
+# def const(value):
+#     def closure():
+#         return (value, closure)
+#     return closure
 
 @raw_stream
 def const(value):
