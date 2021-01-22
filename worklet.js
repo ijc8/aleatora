@@ -30,8 +30,8 @@ const silence = () => [0, silence]
 class MyAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super()
-    //this.stream = concat([slice(osc(440), 44100), slice(osc(660), 44100)])
-    this.stream = silence
+    this.stream = concat([slice(osc(440), 44100), slice(osc(660), 44100)])
+    // this.stream = silence
   }
 
   process(inputs, outputs, parameters) {
