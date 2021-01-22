@@ -1,0 +1,116 @@
+
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-float infinite 3s ease-in-out;
+  }
+}
+
+.App-header {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+}
+
+.App-link {
+  color: rgb(112, 76, 182);
+}
+
+@keyframes App-logo-float {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(10px)
+  }
+  100% {
+    transform: translateY(0px)
+  }
+}
+
+
+
+span {
+  margin: 0;
+}
+
+i {
+  vertical-align: middle;
+}
+
+button {
+  all: unset;
+  height: 100%;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-left: 1px solid black;
+  border-right: 1px solid black;
+  box-sizing: border-box;
+}
+
+button.refresh {
+  border: 1px solid black;
+}
+
+button:hover {
+  background-color: rgb(230, 228, 228);
+}
+
+button:active {
+  background-color: rgb(199, 199, 199);
+  box-shadow: inset 1px 1px black;
+}
+
+button:active i {
+  transform: translate(1px, 1px);
+}
+
+.material-icons {
+  font-size: 20px;
+}
+
+.movable {
+  position: absolute;
+}
+
+.stream-name {
+  cursor: pointer;
+  padding: 10px;
+}
+
+.moving .stream-name {
+  cursor: move;
+}
+
+.stream-header {
+  display: flex;
+  border-top: 1px solid black;
+  border-bottom: 1px solid black;
+  height: 2em;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.stream-details {
+  padding: 10px;
+  box-sizing: border-box;
+  border: 1px solid black;
+}
+
+.stream {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family:'Roboto Mono', monospace;
+}
