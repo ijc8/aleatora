@@ -18,6 +18,15 @@ from audio import *
 tune_a = osc(440)
 tune_b = osc(660)
 
+def serialize(stream):
+    info = stream.inspect()
+    info['parameters'] = {n: p if isinstance(p, Stream) else repr(p) for n, p in info['parameters'].items()}
+    if 'children' in info:
+        info['children']['streams'] = list(map(serialize, info['children']['streams']))
+    if 'implementation' in info:
+        info['implementation'] = serialize(info['implementation'])
+    return info
+
 def get_streams():
     return {name: value for name, value in globals().items() if isinstance(value, Stream)}
 
@@ -25,7 +34,9 @@ async def hello(websocket, path):
     while True:
         # Send list of streams.
         streams = get_streams()
-        await websocket.send(json.dumps(list(streams.keys())))
+        blob = json.dumps({name: serialize(stream) for name, stream in streams.items()})
+        print(blob)
+        await websocket.send(blob)
         while True:
             name = await websocket.recv()
             # Hack
