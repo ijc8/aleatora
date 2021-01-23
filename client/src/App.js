@@ -75,7 +75,39 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   )
 }
 
+const Envelope = () => {
+  // TODO: Make this less hacky, reduce duplication with Stream.
+  useEffect(() => new Nexus.Envelope('#envelope'), [])
+
+  const movable = useRef(null)
+  const [moving, setMoving] = useState(false)
+
+  const onMouseDown = (e) => {
+    setMoving(true)
+    e.preventDefault()
+    let lastPos = [e.clientX, e.clientY]
+    document.onmouseup = () => {
+      setMoving(false)
+      document.onmouseup = document.onmousemove = null
+    }
+
+    document.onmousemove = (e) => {
+      let pos = [e.clientX, e.clientY]
+      let delta = [pos[0] - lastPos[0], pos[1] - lastPos[1]]
+      lastPos = pos
+      movable.current.style.left = (movable.current.offsetLeft + delta[0]) + "px"
+      movable.current.style.top = (movable.current.offsetTop + delta[1]) + "px"
+    }
+  }
+
+  return <div ref={movable} className="movable" style={{border: '1px solid black'}}>
+    <div class="stream-header mover" style={{width: '100%', justifyContent: 'center', borderBottom: '1px solid black'}} onMouseDown={onMouseDown}>Envelope</div>
+    <div id="envelope"></div>
+  </div>
+}
+
 let socket
+const Nexus = window.Nexus
 
 const App = () => {
   const [streams, setStreams] = useState([])
@@ -100,6 +132,7 @@ const App = () => {
                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
                        offset={index*70} />
       })}
+      <Envelope />
     </>
   )
 }
