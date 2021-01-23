@@ -624,7 +624,7 @@ def freeze(stream):
 def peek(stream, default=None):
     result = stream()
     if isinstance(result, Return):
-        return (default, lambda: result)
+        return (default, Stream(lambda: result))
     x, rest = result
     # "Unpeek". Overhead disappears after first sample.
     return (x, list_to_stream([x]) >> rest)

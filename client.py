@@ -1,6 +1,7 @@
 import asyncio
 import websockets
 import json
+import types
 
 from core import *
 from audio import *
@@ -16,11 +17,16 @@ from audio import *
 
 
 tune_a = osc(440)
-tune_b = osc(660)
+tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
+
+def custom_repr(x):
+    if x.__class__.__repr__ == types.FunctionType.__repr__:
+        return '<function>'
+    return repr(x)
 
 def serialize(stream):
     info = stream.inspect()
-    info['parameters'] = {n: p if isinstance(p, Stream) else repr(p) for n, p in info['parameters'].items()}
+    info['parameters'] = {n: p if isinstance(p, Stream) else custom_repr(p) for n, p in info['parameters'].items()}
     if 'children' in info:
         info['children']['streams'] = list(map(serialize, info['children']['streams']))
     if 'implementation' in info:
