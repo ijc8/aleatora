@@ -36,7 +36,8 @@ async def hello(websocket, path):
         print('Refresh')
 
 start_server = websockets.serve(hello, "localhost", 8765)
-await start_server
+# await start_server
 
-# asyncio.get_event_loop().run_until_complete(start_server)
-# asyncio.get_event_loop().run_forever()
+if __name__ == '__main__':
+    asyncio.get_event_loop().run_until_complete(start_server)
+    asyncio.get_event_loop().run_forever()
