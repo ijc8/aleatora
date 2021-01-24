@@ -58,3 +58,30 @@ test5 = freeze(fm(440, 500, basic_envelope(2.0)))
 play(test5)
 test6 = freeze(fm(440, 1000, basic_envelope(10.0)))
 play(test6)
+
+# 1/23/2021
+
+def fm(envelope, freq, mod_freq, mod_idx1, mod_idx2):
+    # P3 = length of envelope
+    # P5 = freq
+    # P6 = mod_freq
+    # P7 = mod_idx1
+    # P8 = mod_idx2
+    dev1 = mod_idx1 * mod_freq
+    dev2 = (mod_idx2 - mod_idx1) * mod_freq
+    return fm_osc(freq + (dev1 + dev2 * envelope) * osc(mod_freq)) * envelope
+
+brass_env = lambda dur: adsr(dur/6, dur/6, dur/2, 3/4, dur/6)
+play(fm(brass_env(.6), 440, 440, 0, 5))
+brass_inst = lambda n: fm(brass_env(n[1]), m2f(n[0]), m2f(n[0]), 0, 5)
+play(sequence(tones, brass_inst, bpm=200))
+
+import graph
+graph.plot(brass_env(.5))
+
+# not too bad, actually!
+
+woodwind_env = lambda dur: adsr(dur/5, 0, dur*7/10, 1, dur/10)
+play(fm(woodwind_env(.6), 900, 300, 0, 2))
+woodwind_inst = lambda n: fm(woodwind_env(n[1]), m2f(n[0]), m2f(n[0])/3 + .5, 0, 2)
+play(sequence(tones, lambda n: woodwind_inst((n[0] + 12, n[1])), bpm=200))
