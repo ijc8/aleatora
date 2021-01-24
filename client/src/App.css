@@ -7,6 +7,10 @@ i {
   vertical-align: middle;
 }
 
+.material-icons {
+  user-select: none;
+}
+
 button {
   all: unset;
   height: 100%;
@@ -41,12 +45,20 @@ button:active i {
   position: absolute;
 }
 
+.spacer {
+  border-top: 1px solid black;
+  border-right: 1px solid black;
+  height: 100%;
+  flex-grow: 1;
+  margin-left: -1px;
+}
+
 .stream-name {
-  cursor: pointer;
+  user-select: none;
   padding: 10px;
 }
 
-.moving .stream-name {
+.moving .stream-header {
   cursor: move;
 }
 

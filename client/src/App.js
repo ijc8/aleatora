@@ -42,30 +42,49 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   const [moving, setMoving] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
+  // Implement dragging.
   const onMouseDown = (e) => {
-    setMoving(true)
-    e.preventDefault()
+    let moved = false
+    // Commented out so buttons in the title bar still press down on drag.
+    // May eventually want to make them inactive again after movement (e.g. how GNOME's WM does it).
+    // e.preventDefault()
     let lastPos = [e.clientX, e.clientY]
     document.onmouseup = () => {
-      setMoving(false)
       document.onmouseup = document.onmousemove = null
+      if (moved) {
+        // Don't register the drag as a click.
+        const captureClick = (e) => {
+          e.stopPropagation()
+          window.removeEventListener('click', captureClick, true)
+        }
+        window.addEventListener('click', captureClick, true)
+      }
+      setMoving(false)
     }
 
     document.onmousemove = (e) => {
-      let pos = [e.clientX, e.clientY]
-      let delta = [pos[0] - lastPos[0], pos[1] - lastPos[1]]
-      lastPos = pos
-      movable.current.style.left = (movable.current.offsetLeft + delta[0]) + "px"
-      movable.current.style.top = (movable.current.offsetTop + delta[1]) + "px"
+      const pos = [e.clientX, e.clientY]
+      const delta = [pos[0] - lastPos[0], pos[1] - lastPos[1]]
+      if (!moved && (Math.abs(delta[0]) > 3 || Math.abs(delta[1]) > 3)) {
+        setMoving(true)
+        moved = true
+      }
+      
+      if (moved) {
+        movable.current.style.left = (movable.current.offsetLeft + delta[0]) + "px"
+        movable.current.style.top = (movable.current.offsetTop + delta[1]) + "px"
+        lastPos = pos
+      }
     }
   }
 
   return (
     <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset + 30 + 'px', left: '20px', zIndex}}>
-      <div className={"stream-header " + (expanded ? "expanded" : "")}>
-        <button onClick={() => socket.send(name)}><Icon name="play_arrow" /></button>
-        <span className="mover stream-name" onMouseDown={onMouseDown}>{name}</span>
+      <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
+        <button onClick={() => send({ cmd: "play", name })}><Icon name="play_arrow" /></button>
+        <span className="stream-name">{name}</span>
         <button className={"expand " + (expanded ? 'punched' : '')} onClick={() => setExpanded(!expanded)}><Icon name="zoom_in" /></button>
+        <div className="spacer"></div>
       </div>
       {expanded &&
       <div className="stream-details">
@@ -75,9 +94,15 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   )
 }
 
-const Envelope = () => {
+const Envelope = ({ name }) => {
   // TODO: Make this less hacky, reduce duplication with Stream.
-  useEffect(() => new Nexus.Envelope('#envelope'), [])
+  const env = useRef(null)
+  useEffect(() => {
+    if (!env.current) {
+      env.current = new Nexus.Envelope('#envelope')
+      env.current.on('change', console.log)
+    }
+  }, [])
 
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
@@ -100,14 +125,18 @@ const Envelope = () => {
     }
   }
 
-  return <div ref={movable} className="movable" style={{border: '1px solid black'}}>
-    <div class="stream-header mover" style={{width: '100%', justifyContent: 'center', borderBottom: '1px solid black'}} onMouseDown={onMouseDown}>Envelope</div>
-    <div id="envelope"></div>
+  return <div ref={movable} className="stream movable">
+    <div className="stream-header" style={{width: '100%', borderBottom: '1px solid black'}} onMouseDown={onMouseDown}>
+      <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
+      <span className="stream-name" style={{width: '100%', borderRight: '1px solid black'}}>my_cool_envelope</span>
+    </div>
+    <div id="envelope" style={{border: '1px solid black', borderTop: 'none'}}></div>
   </div>
 }
 
 let socket
 const Nexus = window.Nexus
+const send = (obj) => socket.send(JSON.stringify(obj))
 
 const App = () => {
   const [streams, setStreams] = useState([])
@@ -123,7 +152,7 @@ const App = () => {
 
   return (
     <>
-      <button className="refresh" onClick={() => socket.send("refresh")}><Icon name="refresh" /></button>
+      <button className="refresh" onClick={() => send({ cmd: "refresh" })}><Icon name="refresh" /></button>
       {Object.entries(streams).map(([name, stream], index) => {
         return <Stream key={name}
                        name={name}

@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import json
 import types
+import pickle
 
 from core import *
 from audio import *
@@ -15,6 +16,9 @@ from audio import *
 # bar = ...
 # composition = foo * envelope + bar ...
 
+def load(resource_name):
+    with open(f'resources/{resource_name}.pkl', 'rb') as f:
+        return pickle.load(f)
 
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
@@ -44,12 +48,16 @@ async def hello(websocket, path):
         print(blob)
         await websocket.send(blob)
         while True:
-            name = await websocket.recv()
-            # Hack
-            if name == 'refresh':
+            data = json.loads(await websocket.recv())
+            cmd = data['cmd']
+            if cmd == 'refresh':
                 break
-            print(f"Play {name}")
-            play(streams[name])
+            elif cmd == 'play': 
+                name = data['name']
+                print(f"Play {name}")
+                play(streams[name])
+            elif cmd == 'save':
+                print('save', data)
         print('Refresh')
 
 start_server = websockets.serve(hello, "localhost", 8765)
