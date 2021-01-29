@@ -240,6 +240,17 @@ class ZipStream(Stream):
 
     def __str__(self):
         return f"ZipStream({', '.join(map(str, self.streams))})"
+    
+    def inspect(self):
+        return {
+            "name": "zip",
+            "parameters": {"fn": self.fn},
+            "children": {
+                "streams": self.streams,
+                "direction": "top-down",
+                "separator": ",",
+            }
+        }
 
 
 class SliceStream(Stream):
@@ -596,6 +607,7 @@ def interp(stream, time=0, prev_time=None, prev_value=None, next_time=0, next_va
     # TODO: adopt a consistent policy re. this kind of convenience conversion
     if not isinstance(stream, Stream):
         stream = list_to_stream(stream)
+    # TODO: rewrite this more simply (and probably more efficiently); see glide(), example.
     def closure():
         nonlocal stream, time, prev_time, prev_value, next_time, next_value
         time += 1

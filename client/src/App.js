@@ -17,14 +17,14 @@ const Details = ({ name, parameters, children, implementation }) => {
     paramFrag = <>
       <h2>Parameters</h2>
       <ul>
-        {Object.entries(parameters).map(([n, p]) => <li key={n}>{n} = {typeof p === 'string' ? p : <Details {...p} />}</li>)}
+        {Object.entries(parameters).map(([n, p]) => <li key={n}>{n} = {p.name === undefined ? p : <Details {...p} />}</li>)}
       </ul>
     </>
   }
   let childFrag
   if (children) {
     childFrag = <div className={children.direction}>
-      {children.streams.map(s => <Details {...s} />).reduce((prev, cur) => [prev, <div className="separator">{children.separator}</div>, cur])}
+      {children.streams.map((s, i) => <Details key={i} {...s} />).reduce((prev, cur) => [prev, <div className="separator">{children.separator}</div>, cur])}
     </div>
   }
   let implFrag
@@ -94,12 +94,14 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   )
 }
 
-const Envelope = ({ name }) => {
+const Envelope = ({ name, points }) => {
   // TODO: Make this less hacky, reduce duplication with Stream.
   const env = useRef(null)
   useEffect(() => {
     if (!env.current) {
-      env.current = new Nexus.Envelope('#envelope')
+      env.current = new Nexus.Envelope('#envelope', {
+        points: (points === undefined ? [{x: 0, y: 0}] : points.map(([x, y]) => ({x, y})))
+      })
       env.current.on('change', console.log)
     }
   }, [])
@@ -128,7 +130,7 @@ const Envelope = ({ name }) => {
   return <div ref={movable} className="stream movable">
     <div className="stream-header" style={{width: '100%', borderBottom: '1px solid black'}} onMouseDown={onMouseDown}>
       <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
-      <span className="stream-name" style={{width: '100%', borderRight: '1px solid black'}}>my_cool_envelope</span>
+      <span className="stream-name" style={{width: '100%', borderRight: '1px solid black'}}>{name}</span>
     </div>
     <div id="envelope" style={{border: '1px solid black', borderTop: 'none'}}></div>
   </div>
@@ -154,14 +156,17 @@ const App = () => {
     <>
       <button className="refresh" onClick={() => send({ cmd: "refresh" })}><Icon name="refresh" /></button>
       {Object.entries(streams).map(([name, stream], index) => {
-        return <Stream key={name}
-                       name={name}
-                       stream={stream}
-                       zIndex={zIndices[name]}
-                       moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                       offset={index*70} />
+        if (stream.name === "envelope") {
+          return <Envelope key={name} name={name} points={stream.parameters.points} />
+        } else {
+          return <Stream key={name}
+                        name={name}
+                        stream={stream}
+                        zIndex={zIndices[name]}
+                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
+                        offset={index*70} />
+        }
       })}
-      <Envelope />
     </>
   )
 }

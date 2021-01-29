@@ -159,3 +159,9 @@ div {
   border-color: gray;
   border-style: dashed;
 }
+
+ul {
+  padding-left: 1em;
+  margin: 0.5em;
+  list-style: none;
+}
