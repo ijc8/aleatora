@@ -8,6 +8,20 @@ import os
 from core import *
 from audio import *
 
+# Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
+import sys
+from io import StringIO
+import contextlib
+import traceback
+
+@contextlib.contextmanager
+def stdIO():
+    old = sys.stdin, sys.stdout, sys.stderr
+    sys.stdin = StringIO()
+    sys.stdout = StringIO()
+    sys.stderr = sys.stdout
+    yield sys.stdout
+    sys.stdin, sys.stdout, sys.stderr = old
 
 # import my_cool_stuff
 # register(my_cool_stuff)
@@ -107,9 +121,9 @@ def get_streams():
 async def serve(websocket, path):
     while True:
         # Send list of streams.
+        # TODO: only refresh if streams changed
         streams = get_streams()
-        blob = json.dumps({name: serialize(stream) for name, stream in streams.items()})
-        print(blob)
+        blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}})
         await websocket.send(blob)
         while True:
             data = json.loads(await websocket.recv())
@@ -126,6 +140,17 @@ async def serve(websocket, path):
                 resource_name = resource_map.get(streams.get(data['name'], None), data['name'])
                 globals()[data['name']] = resource
                 save(resource, resource_name)
+            elif cmd == 'exec':
+                print('code', data['code'])
+                with stdIO() as s:
+                    try:
+                        code = compile(data['code'], '<assistant>', 'single')
+                        exec(code, globals=globals())
+                    except:
+                        traceback.print_exc()
+                print("result:", s.getvalue())
+                await websocket.send(json.dumps({"type": "output", "output": s.getvalue()}))
+                break
         print('Refresh')
 
 start_server = websockets.serve(serve, "localhost", 8765)

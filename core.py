@@ -244,7 +244,7 @@ class ZipStream(Stream):
     def inspect(self):
         return {
             "name": "zip",
-            "parameters": {"fn": self.fn},
+            "parameters": {},
             "children": {
                 "streams": self.streams,
                 "direction": "top-down",

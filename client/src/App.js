@@ -136,6 +136,90 @@ const Envelope = ({ name, points }) => {
   </div>
 }
 
+// TODO: to mirror readline, need to keep track of original and modified lines of history...
+let history = ['']
+let historyIndex = 0
+
+const REPL = ({ setAppendOutput }) => {
+  const textarea = useRef()
+  let inputStart = useRef()
+
+  useEffect(() => {
+    textarea.current.value = ">>> "
+    inputStart.current = textarea.current.value.length
+  }, [])
+
+  setAppendOutput((output) => {
+    console.log("new output", output)
+    const history = textarea.current.value.slice(0, inputStart.current)
+    const response = output + '>>> '
+    const input = textarea.current.value.slice(inputStart.current)
+    textarea.current.value = history + response + input
+    inputStart.current += response.length
+  })
+
+  const onKeyDown = (event) => {
+    console.log("keydown", event.keyCode)
+    if (event.keyCode === 8 && (textarea.current.selectionStart <= inputStart.current)) {
+      event.preventDefault()
+    } else if (event.keyCode === 46 && (textarea.current.selectionStart < inputStart.current)) {
+      event.preventDefault()
+    } else if (event.keyCode === 37 && (textarea.current.selectionStart <= inputStart.current)) {
+      event.preventDefault()
+    } else if (event.keyCode === 38) {
+      event.preventDefault()
+      if (historyIndex > 0) {
+        historyIndex--
+        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex]
+      }
+    } else if (event.keyCode === 40) {
+      event.preventDefault()
+      if (historyIndex < history.length - 1) {
+        historyIndex++
+        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex]
+      }
+    }
+  }
+
+  const onInput = (event) => {
+    history[historyIndex] = textarea.current.value.slice(inputStart.current)
+  }
+
+  const onKeyPress = (event) => {
+    console.log("keypress", event.charCode)
+    if (textarea.current.selectionStart < inputStart.current || event.keyCode === 13) {
+      event.preventDefault()
+    }
+
+    if (event.charCode === 13) {
+      const code = textarea.current.value.slice(inputStart.current)
+      console.log("Submitting user code:", code)
+      send({ cmd: "exec", code })
+      inputStart.current = textarea.current.value.length + 1
+      console.log("sent successfully")
+      if (historyIndex === history.length - 1) {
+        history.push('')
+        historyIndex++
+      } else {
+        history.insert(-1, 0, history[historyIndex])
+        historyIndex = history.length - 1
+      }
+    }
+  }
+
+  const onPasteOrCut = (event) => {
+    if (textarea.current.selectionStart <= inputStart.current) {
+      event.preventDefault()
+    }
+  }
+
+  return <div style={{position: 'absolute', right: 0, bottom: 0, padding: '1em'}}>
+    <textarea ref={textarea} spellCheck={false}
+              onKeyDown={onKeyDown} onKeyPress={onKeyPress} onPaste={onPasteOrCut} onCut={onPasteOrCut} onInput={onInput}
+              style={{width: '600px', height: '300px', border: '1px solid black', resize: 'none', fontSize: '20px'}} />
+  </div>
+}
+
 let socket
 const Nexus = window.Nexus
 const send = (obj) => socket.send(JSON.stringify(obj))
@@ -144,11 +228,17 @@ const App = () => {
   const [streams, setStreams] = useState([])
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
+  const appendOutput = useRef()
 
   useEffect(() => {
     socket = new WebSocket("ws://localhost:8765")
     socket.onmessage = (event) => {
-      setStreams(JSON.parse(event.data))
+      const data = JSON.parse(event.data)
+      if (data.type === "streams") {
+        setStreams(data.streams)
+      } else if (data.type === "output") {
+        appendOutput.current(data.output)
+      }
     }
   }, [])
 
@@ -167,6 +257,7 @@ const App = () => {
                         offset={index*70} />
         }
       })}
+      <REPL setAppendOutput={(f) => appendOutput.current = f} />
     </>
   )
 }
