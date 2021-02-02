@@ -2,12 +2,12 @@ from core import *
 from audio import *
 import wav
 
-snare = list_to_stream(wav.load_mono('/home/ian/samples/snare.wav'))
-kick = list_to_stream(wav.load_mono('/home/ian/samples/kick.wav'))
-play(snare)
-play(kick)
+# snare = list_to_stream(wav.load_mono('/home/ian/samples/snare.wav'))
+# kick = list_to_stream(wav.load_mono('/home/ian/samples/kick.wav'))
+# play(snare)
+# play(kick)
 
-rhythm = [kick, snare, kick, snare]
+# rhythm = [kick, snare, kick, snare]
 def rhythm_to_events(rhythm):
     divisions = len(rhythm)
     events = []
@@ -51,26 +51,28 @@ def str_to_rhythm(s, mapping):
     # TODO: support nesting?
     return [mapping[c] for c in s]
 
-snare_rhythm = str_to_rhythm(euclid(5, 16), {'x': snare, '.': None})
-snare_events = mult_event_times(rhythm_to_events(snare_rhythm), 2.0)
-snare_track = freeze(events_to_stream(snare_events))
+# snare_rhythm = str_to_rhythm(euclid(5, 16), {'x': snare, '.': None})
+# snare_events = mult_event_times(rhythm_to_events(snare_rhythm), 2.0)
+# snare_track = freeze(events_to_stream(snare_events))
 
-kick_rhythm = str_to_rhythm(euclid(4, 16), {'x': kick, '.': None})
-kick_events = mult_event_times(rhythm_to_events(kick_rhythm), 2.0)
-kick_track = freeze(events_to_stream(kick_events))
+# kick_rhythm = str_to_rhythm(euclid(4, 16), {'x': kick, '.': None})
+# kick_events = mult_event_times(rhythm_to_events(kick_rhythm), 2.0)
+# kick_track = freeze(events_to_stream(kick_events))
 
 # play(cycle(snare_track) + cycle(kick_track))
 
-def beat(str, stream, rpm=30):
+def beat(str, stream, rpm=30, bpm=None):
     events = rhythm_to_events(str_to_rhythm(str, {'x': stream, '.': None}))
+    if bpm:
+        return events_to_stream(mult_event_times(events, 60 / bpm * len(str)))
     return events_to_stream(mult_event_times(events, 60 / rpm))
 
 
-from core import *
-from audio import *
-play(osc(40))
-play(osc(39), osc(41))
-play(ZipStream([osc(440), osc(660)]))
-play()
+# from core import *
+# from audio import *
+# play(osc(40))
+# play(osc(39), osc(41))
+# play(ZipStream([osc(440), osc(660)]))
+# play()
 
-play(cycle(beat('xxx.xx.x.xx.', snare)), cycle(beat('x.xx.xxx.xx.', snare)))
+# play(cycle(beat('xxx.xx.x.xx.', snare)), cycle(beat('x.xx.xxx.xx.', snare)))

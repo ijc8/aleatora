@@ -219,3 +219,77 @@ play(sequence(bound, lambda n: bound.state(n), bpm=200))
 
 # This duo probably isn't the right way to build autonomous compositions,
 # but I suspect it will be very useful for livecoding, interactive compositions, etc.
+
+# 1/30/21
+
+play(silence)
+play(cycle(wooddrum_inst((60, 1/2))))
+addplay(cycle(wooddrum_inst((63, 1/4))))
+volume(0.2)
+# This is wild:
+play(cycle(wooddrum_inst((67, 1)))/2)
+# It's becuase 1 is an integer, and is interpreted as a number of samples.
+
+play(cycle(wooddrum_inst((60, 1/2))))
+addplay(cycle(wooddrum_inst((63, 1/4))))
+addplay(cycle(wooddrum_inst((67, 1.))))
+addplay(cycle(wooddrum_inst((69, 1.))))
+addplay(cycle(wooddrum_inst((70, 1.5))))
+play(silence)
+
+# Fun.
+from rhythm import *
+sound = wooddrum_inst((70, 1/2))
+play(cycle(beat('xxx.xx.x.xx.', sound)), cycle(beat('x.xx.xxx.xx.', sound)))
+
+def clapping():
+    pattern = 'xxx.xx.x.xx.'
+    # To make each offset repeat 8 times before proceeding, just do `pattern *= 8`.
+    clap = wooddrum_inst((70, 3/4))
+    return ZipStream((cycle(beat(pattern, clap, bpm=300)), cycle(beat(pattern + '.', clap, bpm=300))))
+
+play(silence)
+play(clapping())
+
+# 2/1/21
+
+from rhythm import *
+sound = wooddrum_inst((70, 1/2))
+play(cycle(beat('xxx.xx.x.xx.', sound)), cycle(beat('x.xx.xxx.xx.', sound)))
+
+def clapping():
+    pattern = 'xxx.xx.x.xx.' * 8
+    clap = wooddrum_inst((70, 3/4))/2
+    # Mark the beginning of each new offset:
+    click = wooddrum_inst((94, 1/4))/2
+    return ZipStream((cycle(beat(pattern, clap, bpm=300) + click), cycle(beat(pattern + '.', clap, bpm=300))))
+
+# What about something that can 'control-rate-ify' an audio signal?
+# i.e., compute 1/n as many values, but hold each value for n samples.
+# Here's something in the ballpark:
+play(resample(osc(440*10), const(1/10)))
+# This stretches out a 4400 Hz sine wave into a (bad, linearly interpolated) 440 Hz one.
+graph.plot(resample(osc(440*10)[:0.01], const(1/10)))
+# Something funky going on here.
+
+import core
+
+@raw_stream()
+def change_rate(stream, factor):
+    def wrapper():
+        # TODO: use `with` here?
+        old = core.SAMPLE_RATE
+        try:
+            core.SAMPLE_RATE *= factor
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            return (value, change_rate(next_stream, factor))
+        finally:
+            core.SAMPLE_RATE = old
+    return wrapper
+
+# Here we have a thing that puts all the computations of a stream in a bubble with a different apparent sample rate.
+play(change_rate(osc(440), 2))
+# Could combine with resample or a ZOH version to produce the desired effect.
