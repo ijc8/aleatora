@@ -8,8 +8,15 @@ import './App.css'
 
 const Icon = ({ name }) => <i className="material-icons">{name}</i>
 
+const Value = ({value}) => {
+  if (Array.isArray(value) || ["number", "string", "boolean"].includes(typeof value)) {
+    return JSON.stringify(value)
+  }
+  return <Details {...value} />
+}
+
 // TODO: cycle checking, fix styling
-const Details = ({ name, parameters, children, implementation }) => {
+const Details = ({ id, name, parameters, children, implementation }) => {
   const [showImplementation, setShowImplementation] = useState(false)
 
   let paramFrag
@@ -17,14 +24,14 @@ const Details = ({ name, parameters, children, implementation }) => {
     paramFrag = <>
       <h2>Parameters</h2>
       <ul>
-        {Object.entries(parameters).map(([n, p]) => <li key={n}>{n} = {p.name === undefined ? p : <Details {...p} />}</li>)}
+        {Object.entries(parameters).map(([n, p]) => <li key={n}>{n} = <Value key={n} value={p} /></li>)}
       </ul>
     </>
   }
   let childFrag
   if (children) {
     childFrag = <div className={children.direction}>
-      {children.streams.map((s, i) => <Details key={i} {...s} />).reduce((prev, cur) => [prev, <div className="separator">{children.separator}</div>, cur])}
+      {children.streams.map((s, i) => <Value key={i} value={s} />).reduce((prev, cur) => [prev, <div className="separator">{children.separator}</div>, cur])}
     </div>
   }
   let implFrag
@@ -34,7 +41,13 @@ const Details = ({ name, parameters, children, implementation }) => {
       {showImplementation && <div className="implementation"><Details {...implementation} /></div>}
     </>
   }
-  return <div className="node"><h1>{name}</h1>{paramFrag}{childFrag}{implFrag}</div>
+  return (<div className="node">
+      <div style={{display: 'flex', justifyContent: 'space-between'}}>
+        <h1>{name}</h1>
+        {id !== undefined && <span className="stream-id">{id}</span>}
+      </div>
+      {paramFrag}{childFrag}{implFrag}
+    </div>)
 }
 
 const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
@@ -201,7 +214,7 @@ const REPL = ({ setAppendOutput }) => {
         history.push('')
         historyIndex++
       } else {
-        history.insert(-1, 0, history[historyIndex])
+        history.splice(-1, 0, history[historyIndex])
         historyIndex = history.length - 1
       }
     }

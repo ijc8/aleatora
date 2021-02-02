@@ -53,6 +53,14 @@ button:active i {
   margin-left: -1px;
 }
 
+.stream-id {
+  vertical-align: middle;
+  font-size: 10px;
+  font-weight: lighter;
+  margin-left: 2em;
+  margin-top: 0.6em;
+}
+
 .stream-name {
   user-select: none;
   padding: 10px;
@@ -106,6 +114,7 @@ button:active i {
   flex-direction: column;
   align-items: flex-start;
   font-family:'Roboto Mono', monospace;
+  max-width: 500px;
 }
 
 h1 {

@@ -3,6 +3,7 @@ import websockets
 import json
 import types
 import pickle
+from pprint import pprint
 import os
 
 from core import *
@@ -22,6 +23,11 @@ def stdIO():
     sys.stderr = sys.stdout
     yield sys.stdout
     sys.stdin, sys.stdout, sys.stderr = old
+
+# Example with changing envelope live:
+# test = osc(660)[:1.0] * Stream(lambda: my_cool_envelope())
+# more = cycle(Stream(lambda: test()))
+# Can now edit and save envelope and hear changes immediately in loop.
 
 # import my_cool_stuff
 # register(my_cool_stuff)
@@ -101,19 +107,30 @@ tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
 my_cool_envelope = load("my_cool_envelope")
 
-def custom_serialize(x):
+def convert(x):
     if x.__class__.__repr__ == types.FunctionType.__repr__:
         return '<function>'
     return x
 
+# to_bytes = lambda x: x.to_bytes(math.ceil(math.log2(x+1)/8), 'big')
+# encode = lambda s: base64.b16encode(to_bytes(s)).decode('utf8')
+encode = lambda s: hex(s)[2:]
+
 def serialize(stream):
-    info = stream.inspect()
-    info['parameters'] = {n: p if isinstance(p, Stream) else custom_serialize(p) for n, p in info['parameters'].items()}
-    if 'children' in info:
-        info['children']['streams'] = list(map(serialize, info['children']['streams']))
-    if 'implementation' in info:
-        info['implementation'] = serialize(info['implementation'])
-    return info
+    seen = set()
+    def dfs(stream):
+        if stream in seen:
+            return {'name': '@' + encode(id(stream)), 'parameters': []}
+        seen.add(stream)
+        info = stream.inspect()
+        info['id'] = encode(id(stream))
+        info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else convert(p) for n, p in info['parameters'].items()}
+        if 'children' in info:
+            info['children']['streams'] = list(map(dfs, info['children']['streams']))
+        if 'implementation' in info:
+            info['implementation'] = dfs(info['implementation'])
+        return info
+    return dfs(stream)
 
 def get_streams():
     return {name: value for name, value in globals().items() if isinstance(value, Stream)}
@@ -123,6 +140,7 @@ async def serve(websocket, path):
         # Send list of streams.
         # TODO: only refresh if streams changed
         streams = get_streams()
+        # pprint({name: serialize(stream) for name, stream in streams.items()})
         blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}})
         await websocket.send(blob)
         while True:
