@@ -50,6 +50,32 @@ const Details = ({ id, name, parameters, children, implementation }) => {
     </div>)
 }
 
+const InspectorTab = ({ name, stream }) => <Details {...stream} />
+
+InspectorTab.icon = "zoom_in"
+
+const EnvelopeTab = ({ name, stream }) => {
+  const env = useRef(null)
+  const points = stream.parameters.points
+  useEffect(() => {
+    if (!env.current) {
+      env.current = new Nexus.Envelope('#envelope', {
+        points: (points === undefined ? [{x: 0, y: 0}] : points.map(([x, y]) => ({x, y})))
+      })
+    }
+  }, [])
+
+  return <div>
+    <div class="envelope-toolbar">
+      <span class="needs-better-name">... envelope duration ...</span>
+      <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
+    </div>
+    <div id="envelope" />
+  </div>
+}
+
+EnvelopeTab.icon = "insights"
+
 const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
@@ -91,42 +117,32 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
     }
   }
 
+  let tabs = [InspectorTab]
+  if (stream.name === "envelope") {
+    tabs.push(EnvelopeTab)
+  }
+
   return (
     <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset + 30 + 'px', left: '20px', zIndex}}>
       <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
-        <button onClick={() => send({ cmd: "play", name })}><Icon name="play_arrow" /></button>
+        <button className="control" onClick={() => send({ cmd: "play", name })}><Icon name="play_arrow" /></button>
         <span className="stream-name">{name}</span>
-        <button className={"expand " + (expanded === 0 ? 'punched' : '')} onClick={() => setExpanded(expanded === 0 ? -1 : 0)}><Icon name="zoom_in" /></button>
-        {stream.name === "envelope" && <button className={"expand " + (expanded === 1 ? 'punched' : '')} onClick={() => setExpanded(expanded === 1 ? -1 : 1)}><Icon name="insights" /></button>}
+        {tabs.map((tab, i) =>
+          <button key={i}
+                  className={"tab control " + (expanded === i ? 'punched' : '')}
+                  onClick={() => setExpanded(expanded === i ? -1 : i)}
+                  style={i === tabs.length - 1 ? {} : {borderRight: 'none'}}>
+            <Icon name={tab.icon} />
+          </button>
+        )}
         <div className="spacer"></div>
       </div>
-      {expanded === 0 &&
-      <div className="stream-details">
-        <Details {...stream} />
-      </div>}
-      {expanded === 1 && stream.name === "envelope" &&
-      <EnvelopeTab points={stream.parameters.points} />}
+      {expanded >= 0 && (() => {
+        const Tab = tabs[expanded]
+        return <div className="stream-details"><Tab name={name} stream={stream} /></div>
+      })()}
     </div>
   )
-}
-
-const EnvelopeTab = ({ name, points }) => {
-  const env = useRef(null)
-  useEffect(() => {
-    if (!env.current) {
-      env.current = new Nexus.Envelope('#envelope', {
-        points: (points === undefined ? [{x: 0, y: 0}] : points.map(([x, y]) => ({x, y})))
-      })
-    }
-  }, [])
-
-  return <div>
-    <div class="envelope-toolbar">
-      <span class="needs-better-name">... envelope duration ...</span>
-      <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
-    </div>
-    <div id="envelope" style={{border: '1px solid black', borderTop: 'none'}} />
-  </div>
 }
 
 // TODO: to mirror readline, need to keep track of original and modified lines of history...

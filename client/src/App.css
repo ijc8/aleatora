@@ -1,3 +1,10 @@
+html {
+  box-sizing: border-box;
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
 
 .App {
   text-align: center;
@@ -13,13 +20,16 @@ i {
 
 button {
   all: unset;
+  box-sizing: border-box;
   height: 100%;
   padding-left: 5px;
   padding-right: 5px;
-  box-sizing: border-box;
+}
+
+button.control {
   border: 1px solid black;
   width: 32px;
-  height: 32px;
+  height: 31px;
 }
 
 button.refresh {
@@ -76,7 +86,6 @@ button:active i {
   display: flex;
   height: 32px;
   align-items: center;
-  box-sizing: border-box;
   background: white;
   width: 100%;
   border-bottom: 1px solid black;
@@ -93,7 +102,6 @@ button:active i {
 
 .stream-header span {
   border-top: 1px solid black;
-  box-sizing: border-box;
   height: 32px;
   line-height: 0.7;
 }
@@ -104,7 +112,6 @@ button:active i {
   border-bottom: 1px solid black;
   background: white;
   min-width: 100%;
-  box-sizing: border-box;
 }
 
 .stream-details > .node {
@@ -179,15 +186,12 @@ ul {
 
 .envelope-toolbar {
   display: flex;
+  height: 32px;
   justify-content: space-between;
-  border-left: 1px solid black;
-  border-right: 1px solid black;
   border-bottom: 1px solid black;
 }
 
 .needs-better-name {
-  box-sizing: border-box;
-  height: 32px;
   line-height: 0.7;
   padding: 10px;
 }
