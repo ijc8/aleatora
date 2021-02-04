@@ -291,5 +291,189 @@ def change_rate(stream, factor):
     return wrapper
 
 # Here we have a thing that puts all the computations of a stream in a bubble with a different apparent sample rate.
-play(change_rate(osc(440), 2))
+play(change_rate(osc(440), 8))
 # Could combine with resample or a ZOH version to produce the desired effect.
+
+# 2/2/21
+from core import *
+from audio import *
+from prof import profile
+
+profile.reset()
+play(profile('changed', change_rate(osc(440), 8))[:1.0])
+play(profile('original', osc(440))[:1.0])
+profile.dump()
+
+def undersample(stream, factor):
+    return resample(change_rate(stream, 1/factor), const(1/factor))
+
+setup()
+play(silence)
+play(osc(440))
+play(undersample(osc(440), 1))
+play(undersample(osc(440), 2))
+play(undersample(osc(440), 4))
+play(undersample(osc(440), 8))
+play(undersample(osc(440), 16))
+play(undersample(osc(440), 32))
+play(undersample(osc(440), 64))
+play(undersample(osc(440), 128))
+play(undersample(osc(440), 256))
+play(undersample(osc(440), 512))
+
+profile.reset()
+play(profile('original', osc(440))[:1.0])
+play(profile('changed', undersample(osc(440), 128))[:1.0])
+profile.dump()
+
+# Interesting; looks like resample itself (or resample + change_rate) is slower than osc, so no benefit from undersampling.
+# Let's try a simpler procedure.
+
+def zoh(stream, factor):
+    # NOTE: factor must be an int.
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (const(value)[:factor] >> zoh(next_stream, factor))()
+    return closure
+
+def undersample(stream, factor):
+    return zoh(change_rate(stream, 1/factor), factor)
+
+# Hm; this version is much slower!
+
+def zoh(stream, factor):
+    # NOTE: factor must be an int.
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, list_to_stream([value] * (factor-1)) >> zoh(next_stream, factor))
+    return closure
+
+# Slightly better, but still worse than resample!
+# Is concat the issue?
+
+def zoh(stream, hold_time, prev_value=None, pos=0):
+    # NOTE: hold_time must be an int
+    def closure():
+        if pos < 0:
+            return (prev_value, zoh(stream, hold_time, prev_value, pos + 1))
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, zoh(next_stream, hold_time, value, pos - hold_time))
+    return closure
+
+# ^ This is buggy in a way that produces an interesting pitch sequence as hold_time is incremented.
+# Ah, it's holding for one sample too many.
+
+def zoh(stream, hold_time, prev_value=None, pos=0):
+    # NOTE: hold_time must be an int
+    def closure():
+        if pos < 0:
+            return (prev_value, zoh(stream, hold_time, prev_value, pos + 1))
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, zoh(next_stream, hold_time, value, pos - hold_time + 1))
+    return closure
+
+# Now this is faster than resample. Interesting.
+
+profile.reset()
+list(profile('original', osc(440))[:10.0] >>
+    profile('/1', undersample(osc(440), 1))[:10.0] >>
+    profile('/2', undersample(osc(440), 2))[:10.0] >>
+    profile('/16', undersample(osc(440), 16))[:10.0] >>
+    profile('/128', undersample(osc(440), 128))[:10.0])
+profile.dump()
+
+# Also interesting: these do look better than just osc, and the budget percentage goes down noticeably when Python isn't responsible for playing the samples (just computing them).
+# Perhaps, for the assistant, it will be worthwhile to send chunks of samples to the client for playback?
+
+# 2/3/21
+import core
+from core import *
+from audio import *
+from prof import profile
+
+def change_rate(stream, factor):
+    def wrapper():
+        # TODO: use `with` here?
+        old = core.SAMPLE_RATE
+        try:
+            core.SAMPLE_RATE *= factor
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            return (value, change_rate(next_stream, factor))
+        finally:
+            core.SAMPLE_RATE = old
+    return wrapper
+
+def zoh(stream, hold_time, prev_value=None, pos=0):
+    # NOTE: hold_time must be an int
+    def closure():
+        if pos < 0:
+            return (prev_value, zoh(stream, hold_time, prev_value, pos + 1))
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, zoh(next_stream, hold_time, value, pos - hold_time + 1))
+    return closure
+
+def undersample(stream, factor):
+    return zoh(change_rate(stream, 1/factor), factor)
+
+play(silence)
+profile.reset()
+list(profile('original', osc(440))[:10.0] >>
+    profile('/1', undersample(osc(440), 1))[:10.0] >>
+    profile('/2', undersample(osc(440), 2))[:10.0] >>
+    profile('/16', undersample(osc(440), 16))[:10.0] >>
+    profile('/128', undersample(osc(440), 128))[:10.0])
+profile.dump()
+
+# Now, without the change_rate layer:
+profile.reset()
+list(profile('original', osc(440))[:10.0] >>
+    profile('/1', zoh(osc(440), 1))[:10.0] >>
+    profile('/2', zoh(osc(440*2), 2))[:10.0] >>
+    profile('/16', zoh(osc(440*16), 16))[:10.0] >>
+    profile('/128', zoh(osc(440*128), 128))[:10.0])
+profile.dump()
+
+# Doesn't seem to make much difference.
+# (Held off on making these @raw_streams while investigating performance.)
+
+# Ooh check it out: can use this to explicitly go from continuous to discrete.
+play(fm_osc(440 + 100*Stream(zoh(osc(10000), 10000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 100))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 3000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 4000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 5000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 6000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 7000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 8000))))
+play(fm_osc(440 + 100*Stream(undersample(osc(1), 15000))))
+
+# Same kind of effect with resample:
+play(resample(osc(440), 1 + .2*osc(1)))
+play(resample(sqr(440), 1 + .2*Stream(undersample(osc(1), 2800))))
+
+import wav
+s = list_to_stream(wav.load_mono('samples/a.wav')[40000:90000])
+import graph
+graph.plot(s)
+play(s)
+play(resample(cycle(s), 1 + .4*osc(1.2)))
+play(resample(cycle(s), 1 + .4*Stream(undersample(osc(1.2), 3000))))
+# Fun! Should try this with "Glooo, o o o o o, o o o o o, o o o o oooorr ia "
