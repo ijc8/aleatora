@@ -18,6 +18,8 @@ button {
   padding-right: 5px;
   box-sizing: border-box;
   border: 1px solid black;
+  width: 32px;
+  height: 32px;
 }
 
 button.refresh {
@@ -173,4 +175,19 @@ ul {
   padding-left: 1em;
   margin: 0.5em;
   list-style: none;
+}
+
+.envelope-toolbar {
+  display: flex;
+  justify-content: space-between;
+  border-left: 1px solid black;
+  border-right: 1px solid black;
+  border-bottom: 1px solid black;
+}
+
+.needs-better-name {
+  box-sizing: border-box;
+  height: 32px;
+  line-height: 0.7;
+  padding: 10px;
 }

@@ -53,7 +53,7 @@ const Details = ({ id, name, parameters, children, implementation }) => {
 const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(-1)
 
   // Implement dragging.
   const onMouseDown = (e) => {
@@ -96,56 +96,36 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
       <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
         <button onClick={() => send({ cmd: "play", name })}><Icon name="play_arrow" /></button>
         <span className="stream-name">{name}</span>
-        <button className={"expand " + (expanded ? 'punched' : '')} onClick={() => setExpanded(!expanded)}><Icon name="zoom_in" /></button>
+        <button className={"expand " + (expanded === 0 ? 'punched' : '')} onClick={() => setExpanded(expanded === 0 ? -1 : 0)}><Icon name="zoom_in" /></button>
+        {stream.name === "envelope" && <button className={"expand " + (expanded === 1 ? 'punched' : '')} onClick={() => setExpanded(expanded === 1 ? -1 : 1)}><Icon name="insights" /></button>}
         <div className="spacer"></div>
       </div>
-      {expanded &&
+      {expanded === 0 &&
       <div className="stream-details">
         <Details {...stream} />
       </div>}
+      {expanded === 1 && stream.name === "envelope" &&
+      <EnvelopeTab points={stream.parameters.points} />}
     </div>
   )
 }
 
-const Envelope = ({ name, points }) => {
-  // TODO: Make this less hacky, reduce duplication with Stream.
+const EnvelopeTab = ({ name, points }) => {
   const env = useRef(null)
   useEffect(() => {
     if (!env.current) {
       env.current = new Nexus.Envelope('#envelope', {
         points: (points === undefined ? [{x: 0, y: 0}] : points.map(([x, y]) => ({x, y})))
       })
-      env.current.on('change', console.log)
     }
   }, [])
 
-  const movable = useRef(null)
-  const [moving, setMoving] = useState(false)
-
-  const onMouseDown = (e) => {
-    setMoving(true)
-    e.preventDefault()
-    let lastPos = [e.clientX, e.clientY]
-    document.onmouseup = () => {
-      setMoving(false)
-      document.onmouseup = document.onmousemove = null
-    }
-
-    document.onmousemove = (e) => {
-      let pos = [e.clientX, e.clientY]
-      let delta = [pos[0] - lastPos[0], pos[1] - lastPos[1]]
-      lastPos = pos
-      movable.current.style.left = (movable.current.offsetLeft + delta[0]) + "px"
-      movable.current.style.top = (movable.current.offsetTop + delta[1]) + "px"
-    }
-  }
-
-  return <div ref={movable} className="stream movable">
-    <div className="stream-header" style={{width: '100%', borderBottom: '1px solid black'}} onMouseDown={onMouseDown}>
+  return <div>
+    <div class="envelope-toolbar">
+      <span class="needs-better-name">... envelope duration ...</span>
       <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
-      <span className="stream-name" style={{width: '100%', borderRight: '1px solid black'}}>{name}</span>
     </div>
-    <div id="envelope" style={{border: '1px solid black', borderTop: 'none'}}></div>
+    <div id="envelope" style={{border: '1px solid black', borderTop: 'none'}} />
   </div>
 }
 
@@ -259,16 +239,12 @@ const App = () => {
     <>
       <button className="refresh" onClick={() => send({ cmd: "refresh" })}><Icon name="refresh" /></button>
       {Object.entries(streams).map(([name, stream], index) => {
-        if (stream.name === "envelope") {
-          return <Envelope key={name} name={name} points={stream.parameters.points} />
-        } else {
-          return <Stream key={name}
-                        name={name}
-                        stream={stream}
-                        zIndex={zIndices[name]}
-                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                        offset={index*70} />
-        }
+        return <Stream key={name}
+                       name={name}
+                       stream={stream}
+                       zIndex={zIndices[name]}
+                       moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
+                       offset={index*70} />
       })}
       <REPL setAppendOutput={(f) => appendOutput.current = f} />
     </>
