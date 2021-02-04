@@ -118,6 +118,7 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   }
 
   let tabs = [InspectorTab]
+  // TODO: create and consult map of stream type to tabs (might be many-to-many).
   if (stream.name === "envelope") {
     tabs.push(EnvelopeTab)
   }
@@ -145,9 +146,16 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   )
 }
 
-// TODO: to mirror readline, need to keep track of original and modified lines of history...
-let history = ['']
+let history = [{original: '', modified: ''}]
 let historyIndex = 0
+
+const KEY_BACKSPACE = 8
+const KEY_ENTER = 13
+const KEY_HOME = 36
+const KEY_LEFT = 37
+const KEY_UP = 38
+const KEY_DOWN = 40
+const KEY_DELETE = 46
 
 const REPL = ({ setAppendOutput }) => {
   const textarea = useRef()
@@ -169,29 +177,33 @@ const REPL = ({ setAppendOutput }) => {
 
   const onKeyDown = (event) => {
     console.log("keydown", event.keyCode)
-    if (event.keyCode === 8 && (textarea.current.selectionStart <= inputStart.current)) {
+    if (event.keyCode === KEY_BACKSPACE && (textarea.current.selectionStart <= inputStart.current)) {
       event.preventDefault()
-    } else if (event.keyCode === 46 && (textarea.current.selectionStart < inputStart.current)) {
+    } else if (event.keyCode === KEY_DELETE && (textarea.current.selectionStart < inputStart.current)) {
       event.preventDefault()
-    } else if (event.keyCode === 37 && (textarea.current.selectionStart <= inputStart.current)) {
+    } else if (event.keyCode === KEY_LEFT && (textarea.current.selectionStart <= inputStart.current)) {
       event.preventDefault()
-    } else if (event.keyCode === 38) {
+    } else if (event.keyCode === KEY_HOME) {
+      event.preventDefault()
+      textarea.current.selectionStart = inputStart.current
+      if (!event.shiftKey) textarea.current.selectionEnd = inputStart.current
+    } else if (event.keyCode === KEY_UP) {
       event.preventDefault()
       if (historyIndex > 0) {
         historyIndex--
-        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex]
+        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex].modified
       }
-    } else if (event.keyCode === 40) {
+    } else if (event.keyCode === KEY_DOWN) {
       event.preventDefault()
       if (historyIndex < history.length - 1) {
         historyIndex++
-        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex]
+        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex].modified
       }
     }
   }
 
   const onInput = (event) => {
-    history[historyIndex] = textarea.current.value.slice(inputStart.current)
+    history[historyIndex].modified = textarea.current.value.slice(inputStart.current)
   }
 
   const onKeyPress = (event) => {
@@ -200,24 +212,21 @@ const REPL = ({ setAppendOutput }) => {
       event.preventDefault()
     }
 
-    if (event.charCode === 13) {
+    if (event.charCode === KEY_ENTER) {
       const code = textarea.current.value.slice(inputStart.current)
       console.log("Submitting user code:", code)
       send({ cmd: "exec", code })
       inputStart.current = textarea.current.value.length + 1
       console.log("sent successfully")
-      if (historyIndex === history.length - 1) {
-        history.push('')
-        historyIndex++
-      } else {
-        history.splice(-1, 0, history[historyIndex])
-        historyIndex = history.length - 1
-      }
+      history[history.length - 1].original = history[history.length - 1].modified = history[historyIndex].modified
+      history[historyIndex].modified = history[historyIndex].original
+      history.push({original: '', modified: ''})
+      historyIndex = history.length - 1
     }
   }
 
   const onPasteOrCut = (event) => {
-    if (textarea.current.selectionStart <= inputStart.current) {
+    if (textarea.current.selectionStart < inputStart.current) {
       event.preventDefault()
     }
   }
