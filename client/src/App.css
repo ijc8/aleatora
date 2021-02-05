@@ -184,6 +184,15 @@ ul {
   list-style: none;
 }
 
+div > ul.tree {
+  width: 250px;
+}
+
+ul.tree > li {
+  border: 1px solid black;
+  padding: 6px;
+}
+
 .envelope-toolbar {
   display: flex;
   height: 32px;

@@ -238,12 +238,25 @@ const REPL = ({ setAppendOutput }) => {
   </div>
 }
 
+const Tree = ({ tree }) => {
+  console.log(tree)
+  return <ul className="tree">
+  {Object.entries(tree).map(([name, value]) => {
+    return <li>
+      {name} ({typeof(value) === 'object' ? 'module' : 'stream'})
+      {typeof(value) === 'object' && <Tree tree={value} />}
+    </li>
+  })}
+  </ul>
+}
+
 let socket
 const Nexus = window.Nexus
 const send = (obj) => socket.send(JSON.stringify(obj))
 
 const App = () => {
   const [streams, setStreams] = useState([])
+  const [tree, setTree] = useState({})
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
@@ -254,6 +267,7 @@ const App = () => {
       const data = JSON.parse(event.data)
       if (data.type === "streams") {
         setStreams(data.streams)
+        setTree(data.tree)
       } else if (data.type === "output") {
         appendOutput.current(data.output)
       }
@@ -263,6 +277,7 @@ const App = () => {
   return (
     <>
       <button className="refresh" onClick={() => send({ cmd: "refresh" })}><Icon name="refresh" /></button>
+      <Tree tree={tree} />
       {Object.entries(streams).map(([name, stream], index) => {
         return <Stream key={name}
                        name={name}

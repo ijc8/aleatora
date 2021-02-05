@@ -105,7 +105,9 @@ def save(resource, resource_name):
 
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
-my_cool_envelope = load("my_cool_envelope")
+# my_cool_envelope = load("my_cool_envelope")
+import wav
+my_cool_sound = list_to_stream(wav.load_mono('samples/a.wav'))
 
 def convert(x):
     if x.__class__.__repr__ == types.FunctionType.__repr__:
@@ -132,6 +134,30 @@ def serialize(stream):
         return info
     return dfs(stream)
 
+def get_stream_tree():
+    # BFS with cycle detection
+    seen = set()
+    root = {}
+    queue = [('__main__', sys.modules['__main__'], None)]
+    while queue:
+        name, module, parent = queue.pop()
+        # print(name, module)
+        this = {} if parent else root
+        for var_name, value in module.__dict__.items():
+            # print(' ', name, type(value))
+            if isinstance(value, Stream) and value not in seen:
+                seen.add(value)
+                this[var_name] = var_name  # serialize(stream)
+            # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
+            # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
+            elif type(value) is types.ModuleType and value not in seen:
+                seen.add(value)
+                queue.append((var_name, value, this))
+        if parent and this:
+            parent[name] = this
+    return root
+
+
 def get_streams():
     return {name: value for name, value in globals().items() if isinstance(value, Stream)}
 
@@ -141,7 +167,8 @@ async def serve(websocket, path):
         # TODO: only refresh if streams changed
         streams = get_streams()
         # pprint({name: serialize(stream) for name, stream in streams.items()})
-        blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}})
+        blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()})
+        print(blob)
         await websocket.send(blob)
         while True:
             data = json.loads(await websocket.recv())
