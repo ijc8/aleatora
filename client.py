@@ -3,11 +3,10 @@ import websockets
 import json
 import types
 import pickle
-from pprint import pprint
 import os
 
 from core import *
-from audio import *
+import audio
 
 # Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
 import sys
@@ -105,7 +104,7 @@ def save(resource, resource_name):
 
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
-# my_cool_envelope = load("my_cool_envelope")
+my_cool_envelope = load("my_cool_envelope")
 import wav
 my_cool_sound = list_to_stream(wav.load_mono('samples/a.wav'))
 
@@ -136,22 +135,21 @@ def serialize(stream):
 
 def get_stream_tree():
     # BFS with cycle detection
-    seen = set()
+    modules_seen = set()
+    variables_seen = set()
     root = {}
     queue = [('__main__', sys.modules['__main__'], None)]
     while queue:
         name, module, parent = queue.pop()
-        # print(name, module)
         this = {} if parent else root
         for var_name, value in module.__dict__.items():
-            # print(' ', name, type(value))
-            if isinstance(value, Stream) and value not in seen:
-                seen.add(value)
+            if isinstance(value, Stream) and (var_name, value) not in variables_seen:
+                variables_seen.add((var_name, value))
                 this[var_name] = var_name  # serialize(stream)
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
-            elif type(value) is types.ModuleType and value not in seen:
-                seen.add(value)
+            elif type(value) is types.ModuleType and value not in modules_seen:
+                modules_seen.add(value)
                 queue.append((var_name, value, this))
         if parent and this:
             parent[name] = this
@@ -161,16 +159,39 @@ def get_stream_tree():
 def get_streams():
     return {name: value for name, value in globals().items() if isinstance(value, Stream)}
 
+position_map = {}
+
+# https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
+class EventThreadSafe(asyncio.Event):
+    def set(self):
+        self._loop.call_soon_threadsafe(super().set)
+
 async def serve(websocket, path):
+    finished_playing = EventThreadSafe()
+
+    async def wait_for_finish():
+        while True:
+            print('Waiting!')
+            await finished_playing.wait()
+            print('Finished!')
+            finished_playing.clear()
+            print('Sending!')
+            await websocket.send(json.dumps({"type": "finish"}))
+            print('Sent!')
+
+    asyncio.ensure_future(wait_for_finish())
+
     while True:
         # Send list of streams.
         # TODO: only refresh if streams changed
         streams = get_streams()
-        # pprint({name: serialize(stream) for name, stream in streams.items()})
         blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()})
-        print(blob)
         await websocket.send(blob)
         while True:
+            # websocket_task = asyncio.create_task(websocket.recv())
+            # finished_playing_task = asyncio.create_task(finished_playing.wait())
+            # done, pending = await asyncio.wait({websocket_task, finished_playing_task})
+
             data = json.loads(await websocket.recv())
             cmd = data['cmd']
             if cmd == 'refresh':
@@ -178,7 +199,10 @@ async def serve(websocket, path):
             elif cmd == 'play': 
                 name = data['name']
                 print(f"Play {name}")
-                play(streams[name])
+                audio.play(position_map.get(streams[name], streams[name]) >> (lambda: print("Setting!") or Return(finished_playing.set())))
+            elif cmd == 'pause':
+                position_map[streams[name]] = audio._samples.rest
+                audio.play()
             elif cmd == 'save':
                 print('save', data)
                 resource = type_map[data['type']](data['payload'])

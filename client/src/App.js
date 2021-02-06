@@ -76,10 +76,16 @@ const EnvelopeTab = ({ name, stream }) => {
 
 EnvelopeTab.icon = "insights"
 
-const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
+const Stream = ({ name, stream, zIndex, moveToTop, offset, finished, setFinished }) => {
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
   const [expanded, setExpanded] = useState(-1)
+  const [playing, setPlaying] = useState(false)
+
+  if (playing && finished) {
+    setPlaying(false)
+    setFinished(false)
+  }
 
   // Implement dragging.
   const onMouseDown = (e) => {
@@ -124,9 +130,14 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset }) => {
   }
 
   return (
-    <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset + 30 + 'px', left: '20px', zIndex}}>
+    <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset[0] + 'px', left: offset[1] + 'px', zIndex}}>
       <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
-        <button className="control" onClick={() => send({ cmd: "play", name })}><Icon name="play_arrow" /></button>
+        <button className="control" onClick={() => {
+          send({ cmd: playing ? "pause" : "play", name })
+          setPlaying(!playing)
+        }}>
+          <Icon name={playing ? "pause" : "play_arrow"} />
+        </button>
         <span className="stream-name">{name}</span>
         {tabs.map((tab, i) =>
           <button key={i}
@@ -260,6 +271,7 @@ const App = () => {
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
+  const [finished, setFinished] = useState(false)
 
   useEffect(() => {
     socket = new WebSocket("ws://localhost:8765")
@@ -270,6 +282,8 @@ const App = () => {
         setTree(data.tree)
       } else if (data.type === "output") {
         appendOutput.current(data.output)
+      } else if (data.type === "finish") {
+        setFinished(true)
       }
     }
   }, [])
@@ -284,7 +298,9 @@ const App = () => {
                        stream={stream}
                        zIndex={zIndices[name]}
                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                       offset={index*70} />
+                       offset={[index*70 + 30, 300]}
+                       finished={finished}
+                       setFinished={setFinished} />
       })}
       <REPL setAppendOutput={(f) => appendOutput.current = f} />
     </>

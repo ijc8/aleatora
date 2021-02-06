@@ -32,7 +32,6 @@ def run(composition, blocksize=0):
 
 # Internals:
 
-_setup = False
 _channels = 0
 _stream = None
 _samples = None
@@ -40,9 +39,11 @@ _samples = None
 _volume = 1.0
 
 def _cleanup():
+    global _stream
     if _stream:
         _stream.stop()
         _stream.close()
+        _stream = None
 
 # Public:
 
@@ -53,57 +54,61 @@ def volume(vol=None):
     return _volume
 
 def setup(device=None, channels=1):
+    print("Setup")
     global _setup, _channels, _stream, _samples
-    if _setup:
+    if _stream:
         _cleanup()
-        _setup = False
 
     if device is not None:
         sd.default.device = device
-    _samples = iter(core.silence)
+    # _samples = iter(core.silence)
     _stream = sd.OutputStream(channels=channels, callback=play_callback)
     core.SAMPLE_RATE = _stream.samplerate
     _stream.start()
     _channels = channels
-    _setup = True
-
-    # TODO: check if this is still necessary.
-    if not _setup:
-        atexit.register(_cleanup)
 
 def play_callback(outdata, frames, time, status):
     global _samples
+    if _samples.returned:
+        outdata[:frames] = 0
+        return
     try:
+        i = -1
         for i, sample in zip(range(frames), _samples):
             outdata[i] = sample
         outdata *= _volume
-        if i < frames - 1:
-            print("Finished playing.")
-            raise sd.CallbackStop
-    except:
+        if _samples.returned:
+            outdata[i+1:frames] = 0
+            # Note: we avoid stopping the PortAudio stream,
+            # because making a new stream later will break connections in Jack.
+    except Exception as e:
+        _samples.returned = e
         traceback.print_exc()
-        _samples = iter(core.silence)
 
 
-# play() -> plays silence
+# play() -> stops playing
 # play(a) -> plays the stream a, which may have one or more channels
 # play(a, b) -> plays the mono streams a, b together in stereo
 
 
-def play(*composition):
+def play(*streams):
     global _samples
-    if len(composition) > 1:
-        # Passed multiple tracks; zip them together as channels.
-        channels = len(composition)
-        composition = core.ZipStream(composition)
-    else:
-        composition = composition[0] if composition else core.silence
+    if not streams:
+        stream = core.empty
+        channels = _channels
+    elif len(streams) == 1:
         # Peek ahead to determine the number of channels automatically.
-        sample, composition = core.peek(composition)
+        sample, stream = core.peek(streams[0])
         channels = getattr(sample, '__len__', lambda: 1)()
-    if not _setup or _channels != channels:
+    else:
+        # Passed multiple tracks; zip them together as channels.
+        stream = core.ZipStream(streams)
+        channels = len(streams)
+
+    _samples = iter(stream)
+    if not _stream or _channels != channels:
         setup(channels=channels)
-    _samples = iter(composition >> core.silence)
+
 
 # Add another layer to playback without resetting the position of existing layers.
 def addplay(layer):
