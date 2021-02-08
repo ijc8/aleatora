@@ -76,7 +76,7 @@ const EnvelopeTab = ({ name, stream }) => {
 
 EnvelopeTab.icon = "insights"
 
-const Stream = ({ name, stream, zIndex, moveToTop, offset, finished, setFinished }) => {
+const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
   const [expanded, setExpanded] = useState(-1)
@@ -84,7 +84,6 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished, setFinished
 
   if (playing && finished) {
     setPlaying(false)
-    setFinished(false)
   }
 
   // Implement dragging.
@@ -271,7 +270,7 @@ const App = () => {
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
-  const [finished, setFinished] = useState(false)
+  const [finished, setFinished] = useState(null)
 
   useEffect(() => {
     socket = new WebSocket("ws://localhost:8765")
@@ -283,7 +282,8 @@ const App = () => {
       } else if (data.type === "output") {
         appendOutput.current(data.output)
       } else if (data.type === "finish") {
-        setFinished(true)
+        setFinished(data.name)
+        setFinished(null)
       }
     }
   }, [])
@@ -299,8 +299,7 @@ const App = () => {
                        zIndex={zIndices[name]}
                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
                        offset={[index*70 + 30, 300]}
-                       finished={finished}
-                       setFinished={setFinished} />
+                       finished={name === finished} />
       })}
       <REPL setAppendOutput={(f) => appendOutput.current = f} />
     </>

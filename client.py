@@ -159,52 +159,68 @@ def get_stream_tree():
 def get_streams():
     return {name: value for name, value in globals().items() if isinstance(value, Stream)}
 
-position_map = {}
-
 # https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
 class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
 
-# Usage:
-# w = WrappedStream(stream)
-# list(stream[:30.0])
-# w.position  # Points to last-played continuation in the stream; in this case, the point 30 seconds in.
-
-# This was my first idea (for managing multi-stream play/pause), but I'm going to discard it in the next commit:
-class WrappedStream:
-    def __init__(self, stream):
-        self.init_stream = stream
-        self.position = stream
-
+class StreamManager:
+    def __init__(self, finish_callback):
+        self.finish_callback = finish_callback
+        # Map of stream name -> (stream, paused position)
+        self.streams = {}
+        # Map of stream name -> stream
+        self.playing_streams = {}
+    
     def __call__(self):
-        def wrap(stream):
-            def closure():
-                result = stream()
-                if isinstance(result, Return):
-                    return result
+        acc = 0
+        to_remove = set()
+        for name, stream in self.playing_streams.items():
+            result = stream()
+            if isinstance(result, Return):
+                self.finish_callback(name, result.value)
+                to_remove.add(name)
+                init_stream = self.streams[name][0]
+                self.streams[name] = (init_stream, init_stream)
+            else:
                 value, next_stream = result
-                self.position = next_stream
-                return (value, wrap(next_stream))
-            return closure
-        return wrap(self.init_stream)()
+                self.playing_streams[name] = next_stream
+                acc += value
+        for name in to_remove:
+            del self.playing_streams[name]
+        return (acc, self)
+    
+    def play(self, name, stream):
+        if name in self.streams and self.streams[name][0] is stream:
+            self.playing_streams[name] = self.streams[name][1]
+        else:
+            assert(stream is not None)
+            self.streams[name] = (stream, stream)
+            self.playing_streams[name] = stream
+    
+    def pause(self, name):
+        self.streams[name] = (self.streams[name][0], self.playing_streams[name])
+        del self.playing_streams[name]
+
+
 
 
 async def serve(websocket, path):
-    finished_playing = EventThreadSafe()
-    playing_stream = None
+    finished_event = EventThreadSafe()
+    finished = []
+    def finish_callback(name, result):
+        finished.append(name)
+        finished_event.set()
+
+    manager = StreamManager(finish_callback)
+    audio.play(manager)
 
     async def wait_for_finish():
         while True:
-            print('Waiting!')
-            await finished_playing.wait()
-            if playing_stream in position_map:
-                del position_map[playing_stream]
-            print('Finished!')
-            finished_playing.clear()
-            print('Sending!')
-            await websocket.send(json.dumps({"type": "finish"}))
-            print('Sent!')
+            await finished_event.wait()
+            finished_event.clear()
+            while finished:
+                await websocket.send(json.dumps({"type": "finish", "name": finished.pop()}))
 
     asyncio.ensure_future(wait_for_finish())
 
@@ -215,10 +231,6 @@ async def serve(websocket, path):
         blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()})
         await websocket.send(blob)
         while True:
-            # websocket_task = asyncio.create_task(websocket.recv())
-            # finished_playing_task = asyncio.create_task(finished_playing.wait())
-            # done, pending = await asyncio.wait({websocket_task, finished_playing_task})
-
             data = json.loads(await websocket.recv())
             cmd = data['cmd']
             if cmd == 'refresh':
@@ -227,11 +239,9 @@ async def serve(websocket, path):
                 name = data['name']
                 print(f"Play {name}")
                 playing_stream = name
-                stream = position_map.get(name, streams[name])
-                audio.play(stream >> (lambda: print("Setting!") or Return(finished_playing.set())))
+                manager.play(name, streams[name])
             elif cmd == 'pause':
-                position_map[data['name']] = audio._samples.rest
-                audio.play()
+                manager.pause(data['name'])
             elif cmd == 'save':
                 print('save', data)
                 resource = type_map[data['type']](data['payload'])
