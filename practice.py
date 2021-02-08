@@ -477,3 +477,174 @@ play(s)
 play(resample(cycle(s), 1 + .4*osc(1.2)))
 play(resample(cycle(s), 1 + .4*Stream(undersample(osc(1.2), 3000))))
 # Fun! Should try this with "Glooo, o o o o o, o o o o o, o o o o oooorr ia "
+
+
+# 2/5
+from core import *
+from audio import *
+from prof import profile
+
+# Naive implementation: no flattening
+def my_concat(a, b):
+    def closure():
+        result = a()
+        if isinstance(result, Return):
+            return b()
+        value, next_a = result
+        return (value, my_concat(next_a, b))
+    return closure
+
+profile.reset()
+list(profile('c', silence[:100.0] >> silence[:100.0]))
+list(profile('m', my_concat(silence[:100.0], silence[:100.0])))
+profile.dump()
+
+# Looks like the current concat is fine.
+# And, of course, it's better in this situation:
+s = silence[:100.0]
+profile.reset()
+list(profile('c', s >> s >> s))
+list(profile('m1', my_concat(s, my_concat(s, s))))
+list(profile('m2', my_concat(my_concat(s, s), s)))
+profile.dump()
+# How curious. The differences here are marginal...
+
+def arrange(items):
+    # items :: [(start_time, end_time (may be None), stream)]
+    # The main issue here is avoiding the cost of + when waiting for another stream's start_time.
+    pass # TODO tomorrow
+
+# Naively: (silence[:start_time0] >> stream0) + (silence[:start_time1] >> stream1) + (silence[:start_time2] >> stream2) etc.
+# I think we can do better by using the fact that SliceStream returns the rest of the stream.
+# something like silence[:start_time0] >> stream0[:start_time1].bind(lambda rest: rest + stream1) etc.
+
+# 2/6
+
+# Splicing a stream into the middle of another one.
+# Monadic bind:
+@raw_stream
+def bind(a, b):
+    def closure():
+        result = a()
+        if isinstance(result, Return):
+            return b(result.value)()
+        value, next_a = result
+        return (value, bind(next_a, b))
+    return closure
+
+stream = osc(440)[:2.0]
+splice = osc(660)[:1.0]
+play(bind(stream[:1.0], lambda rest: splice >> rest))
+
+# Naive first pass
+def arrange(items):
+    def give_me_a_new_scope_please(start_time, end_time, stream):
+        return lambda rest: rest + (stream[:end_time-start_time] if end_time else stream)
+
+    items = sorted(items, key=lambda item: item[0])
+    out = silence
+    for start_time, end_time, stream in items:
+        out = bind(out[:start_time], give_me_a_new_scope_please(start_time, end_time, stream))
+    return out
+
+s = arrange([(1.0, 2.0, osc(440)),
+             (3.0, 3.5, osc(660))])
+s.inspect()
+play(s)
+
+# Generates something like
+# bind(bind(bind(silence[:start_time0], \r -> r + stream0)[:start_time1], \r -> r + stream1)[:start_time2], \r -> r + stream2)
+# All of the binds are nested at the start.
+# Instead, we want:
+# bind(silence[:start_time0], \r -> r + bind(stream0[:start_time1-start_time0], \r -> r + bind(stream1[:start_time2-start_time1], \r -> r + stream2)))
+# or with the `r +`s inside the binds; don't think it should matter much.
+# tomorrow!
+
+# 2/8
+
+# I'll get back to arrange() soon.
+# But first: how can we signal back from low-level to high-level?
+# Imagine there's some stream going on that builds off of old state
+# such that it can't just be generated in pieces at a higher level
+# but we still want to mark higher-level divisions within.
+# How can we do that?
+# Could return tuples, as in (actual_value, flag_value)
+# or we could intersperse another kind of special value - kind of like Return - to signal events
+# call it Event
+# then other operations could either look for or ignore Events.
+# ex: turn this
+
+def make_instrument(oscillator, envelope):
+    return lambda n: oscillator(m2f(n[0])) * envelope(n[1])
+
+inst = make_instrument(lambda f: sqr(f)/4 + tri(f)*3/4, basic_envelope)
+
+def sequence(notes, instrument, bpm=80):
+    return lazy_concat(to_stream(notes).map(lambda n: instrument((n[0], 60.0 / bpm * n[1]))))
+
+# into this
+
+class Event:
+    def __init__(self, value):
+        self.value = value
+    
+    def __repr__(self):
+        return f"Event({self.value!r})"
+
+def sequence(notes, instrument, bpm=80):
+    return lazy_concat(to_stream(notes).map(lambda n: to_stream([Event(("noteon", n[0], n[1]))]) >> instrument((n[0], 60.0 / bpm * n[1]))))
+
+# Then:
+
+list(sequence([(60, 1/2048), (67, 1/2048)], inst))
+
+# TODO: bring this into core as Stream.filter.
+def sfilter(stream, predicate):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        if not predicate(value):
+            # Skip.
+            return sfilter(next_stream, predicate)()
+        return (value, sfilter(next_stream, predicate))
+    return closure
+        
+
+def strip_events(stream):
+    return sfilter(stream, lambda x: not isinstance(x, Event))
+
+play(strip_events(sequence([(60, 1), (67, 1)], inst)))
+
+# And now, another example:
+
+# Split a stream when a predicate is matched.
+def split(stream, predicate):
+    def closure():
+        result = stream()
+        # Convention: if the stream terminates before it's split,
+        # wrap the Return again, so the function after the bind sees one Return.
+        # Alteratively, could return an "empty" stream with just that value.
+        # That way, the function bound after the split will always get a Stream.
+        # (This is like asking: should 'abc'.split('d', 1) return ['abc'] or ['abc', '']?)
+        if isinstance(result, Return):
+            return Return(result)
+        value, next_stream = result
+        # Like str.split, this consumes the split value.
+        # It may be useful to have a variant that either
+        # 1) keeps the split value in the stream before or after the split, or
+        # 2) passes the split value into the next function (`Return((value, next_stream))`)
+        if predicate(value):
+            return Return(next_stream)
+        return (value, split(next_stream, predicate))
+    return closure
+
+s = sequence([(60, 1), (67, 1)], inst)
+# Note the [1:], which discards the first Event.
+interlaced = bind(split(s[1:], lambda x: isinstance(x, Event)), lambda rest: osc(40)[:0.5] >> rest)
+play(strip_events(s))
+play(interlaced)
+
+# The more efficient arrange will have to wait until tomorrow.
+# Also, should move to_stream, bind, filter, split into core.
