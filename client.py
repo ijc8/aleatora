@@ -166,13 +166,40 @@ class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
 
+# Usage:
+# w = WrappedStream(stream)
+# list(stream[:30.0])
+# w.position  # Points to last-played continuation in the stream; in this case, the point 30 seconds in.
+
+# This was my first idea (for managing multi-stream play/pause), but I'm going to discard it in the next commit:
+class WrappedStream:
+    def __init__(self, stream):
+        self.init_stream = stream
+        self.position = stream
+
+    def __call__(self):
+        def wrap(stream):
+            def closure():
+                result = stream()
+                if isinstance(result, Return):
+                    return result
+                value, next_stream = result
+                self.position = next_stream
+                return (value, wrap(next_stream))
+            return closure
+        return wrap(self.init_stream)()
+
+
 async def serve(websocket, path):
     finished_playing = EventThreadSafe()
+    playing_stream = None
 
     async def wait_for_finish():
         while True:
             print('Waiting!')
             await finished_playing.wait()
+            if playing_stream in position_map:
+                del position_map[playing_stream]
             print('Finished!')
             finished_playing.clear()
             print('Sending!')
@@ -199,9 +226,11 @@ async def serve(websocket, path):
             elif cmd == 'play': 
                 name = data['name']
                 print(f"Play {name}")
-                audio.play(position_map.get(streams[name], streams[name]) >> (lambda: print("Setting!") or Return(finished_playing.set())))
+                playing_stream = name
+                stream = position_map.get(name, streams[name])
+                audio.play(stream >> (lambda: print("Setting!") or Return(finished_playing.set())))
             elif cmd == 'pause':
-                position_map[streams[name]] = audio._samples.rest
+                position_map[data['name']] = audio._samples.rest
                 audio.play()
             elif cmd == 'save':
                 print('save', data)

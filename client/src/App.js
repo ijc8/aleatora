@@ -31,7 +31,7 @@ const Details = ({ id, name, parameters, children, implementation }) => {
   let childFrag
   if (children) {
     childFrag = <div className={children.direction}>
-      {children.streams.map((s, i) => <Value key={i} value={s} />).reduce((prev, cur) => [prev, <div className="separator">{children.separator}</div>, cur])}
+      {children.streams.map((s, i) => <Value key={i} value={s} />).reduce((prev, cur) => [prev, <div key={"sep-" + prev.key} className="separator">{children.separator}</div>, cur])}
     </div>
   }
   let implFrag
@@ -66,8 +66,8 @@ const EnvelopeTab = ({ name, stream }) => {
   }, [])
 
   return <div>
-    <div class="envelope-toolbar">
-      <span class="needs-better-name">... envelope duration ...</span>
+    <div className="envelope-toolbar">
+      <span className="needs-better-name">... envelope duration ...</span>
       <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
     </div>
     <div id="envelope" />
@@ -253,7 +253,7 @@ const Tree = ({ tree }) => {
   console.log(tree)
   return <ul className="tree">
   {Object.entries(tree).map(([name, value]) => {
-    return <li>
+    return <li key={name}>
       {name} ({typeof(value) === 'object' ? 'module' : 'stream'})
       {typeof(value) === 'object' && <Tree tree={value} />}
     </li>
