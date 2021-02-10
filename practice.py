@@ -648,3 +648,56 @@ play(interlaced)
 
 # The more efficient arrange will have to wait until tomorrow.
 # Also, should move to_stream, bind, filter, split into core.
+
+
+# 2/10/21
+# From before:
+def arrange(items):
+    def give_me_a_new_scope_please(start_time, end_time, stream):
+        return lambda rest: rest + (stream[:end_time-start_time] if end_time else stream)
+
+    items = sorted(items, key=lambda item: item[0])
+    out = silence
+    for start_time, end_time, stream in items:
+        out = bind(out[:start_time], give_me_a_new_scope_please(start_time, end_time, stream))
+    return out
+
+# Generates
+# bind(bind(bind(silence[:start_time0], \r -> r + stream0[:end_time0])[:start_time1], \r -> r + stream1[:end_time1])[:start_time2], \r -> r + stream2[:end_time2])
+# Instead, we want:
+# bind(silence[:start_time0], \r -> bind((r + stream0[:end_time0-start_time0])[:start_time1-start_time0], \r -> bind((r + stream1[:end_time1-start_time1])[:start_time2-start_time1], \r -> r + stream2[:end_time2-start_time2])))
+# or with the `r +`s inside the binds.
+
+def arrange(items):
+    items = sorted(items, key=lambda item: item[0], reverse=True)
+    last_start_time, last_end_time, last_stream = items[0]
+    out = lambda r: r + last_stream[:last_end_time-last_start_time]
+    prev_start_time = last_start_time
+    for start_time, end_time, stream in items[1:]:
+        print(last_start_time, start_time, end_time)
+        # Sometimes I really wish Python had `let`...
+        out = (lambda start, end, stream, prev: (lambda r: bind((r + stream[:end])[:start], prev)))(prev_start_time - start_time, end_time - start_time, stream, out)
+        prev_start_time = start_time
+    return bind(silence[:prev_start_time], out)
+
+s = arrange([(1.0, 2.0, osc(440)),
+             (3.0, 3.5, osc(660))])
+s.inspect()
+play(s)
+play()
+
+# Should this go on forever, or stop once all arranged streams have started and stopped?
+# Here's the stopping version:
+
+def arrange(items):
+    items = sorted(items, key=lambda item: item[0], reverse=True)
+    last_start_time, last_end_time, last_stream = items[0]
+    out = lambda r: r + last_stream[:last_end_time-last_start_time]
+    prev_start_time = last_start_time
+    for start_time, end_time, stream in items[1:]:
+        print(last_start_time, start_time, end_time)
+        # Sometimes I really wish Python had `let`...
+        out = (lambda start, end, stream, prev: (lambda r: bind((r + stream[:end])[:start], prev)))(prev_start_time - start_time, end_time - start_time, stream, out)
+        prev_start_time = start_time
+    return bind(silence[:last_start_time][:prev_start_time], out)
+

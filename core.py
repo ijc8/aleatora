@@ -291,7 +291,7 @@ class SliceStream(Stream):
         return Return(self.stream)
 
     def __str__(self):
-        return f"{self.stream}[{self.start or ''}:{self.stop or ''}:{self.step if self.step != 1 else ''}]"
+        return f"{self.stream}[{self.start or ''}:{self.stop if self.stop is not None else ''}:{self.step if self.step != 1 else ''}]"
 
     def inspect(self):
         return {

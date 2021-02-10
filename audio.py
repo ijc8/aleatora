@@ -54,8 +54,7 @@ def volume(vol=None):
     return _volume
 
 def setup(device=None, channels=1):
-    print("Setup")
-    global _setup, _channels, _stream, _samples
+    global _channels, _stream, _samples
     if _stream:
         _cleanup()
 
