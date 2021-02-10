@@ -1,4 +1,5 @@
 import asyncio
+import math
 import websockets
 import json
 import types
@@ -180,13 +181,13 @@ class StreamManager:
             if isinstance(result, Return):
                 self.finish_callback(name, result.value)
                 to_remove.add(name)
-                init_stream = self.streams[name][0]
-                self.streams[name] = (init_stream, init_stream)
             else:
                 value, next_stream = result
                 self.playing_streams[name] = next_stream
                 acc += value
         for name in to_remove:
+            init_stream = self.streams[name][0]
+            self.streams[name] = (init_stream, init_stream)
             del self.playing_streams[name]
         return (acc, self)
     
@@ -199,8 +200,16 @@ class StreamManager:
             self.playing_streams[name] = stream
     
     def pause(self, name):
+        if name not in self.playing_streams:
+            print(f'Warning: {name} is not playing, desync with client.', file=sys.stderr)
+            return
         self.streams[name] = (self.streams[name][0], self.playing_streams[name])
         del self.playing_streams[name]
+    
+    def stop(self, name):
+        self.streams[name] = (self.streams[name][0], self.streams[name][0])
+        if name in self.playing_streams:
+            del self.playing_streams[name]
 
 
 
@@ -237,11 +246,12 @@ async def serve(websocket, path):
                 break
             elif cmd == 'play': 
                 name = data['name']
-                print(f"Play {name}")
                 playing_stream = name
                 manager.play(name, streams[name])
             elif cmd == 'pause':
                 manager.pause(data['name'])
+            elif cmd == 'stop':
+                manager.stop(data['name'])
             elif cmd == 'save':
                 print('save', data)
                 resource = type_map[data['type']](data['payload'])
@@ -259,6 +269,8 @@ async def serve(websocket, path):
                 print("result:", s.getvalue())
                 await websocket.send(json.dumps({"type": "output", "output": s.getvalue()}))
                 break
+            elif cmd == 'volume':
+                audio.volume(data['volume'])
         print('Refresh')
 
 start_server = websockets.serve(serve, "localhost", 8765)

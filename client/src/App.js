@@ -137,6 +137,12 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
         </button>
+        <button className="control" style={{borderLeft: 'none'}} onClick={() => {
+          send({ cmd: "stop", name })
+          setPlaying(false)
+        }}>
+          <Icon name="stop" />
+        </button>
         <span className="stream-name">{name}</span>
         {tabs.map((tab, i) =>
           <button key={i}
@@ -260,6 +266,17 @@ const Tree = ({ tree }) => {
   </ul>
 }
 
+const VolumeControl = ({ setVolume }) => {
+  const [volume, _setVolume] = useState(-6)
+  return <>
+    <div style={{position: 'absolute', top: '10px', right: '10px', textAlign: 'center', width: '40px'}}>
+      <div>{volume}</div>
+      <input style={{writingMode: 'vertical-lr'}} type="range" min="-72" max="12"
+             onChange={(e) => { setVolume(e.target.value); _setVolume(e.target.value) }} value={volume}></input>
+    </div>
+  </>
+}
+
 let socket
 const Nexus = window.Nexus
 const send = (obj) => socket.send(JSON.stringify(obj))
@@ -302,6 +319,7 @@ const App = () => {
                        finished={name === finished} />
       })}
       <REPL setAppendOutput={(f) => appendOutput.current = f} />
+      <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} />
     </>
   )
 }
