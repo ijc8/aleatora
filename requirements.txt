@@ -13,11 +13,12 @@ ipython-genutils==0.2.0
 jedi==0.17.2
 jupyter-client==6.1.7
 jupyter-core==4.6.3
-Kivy==2.0.0
+Kivy==1.11.1
 Kivy-Garden==0.1.4
 kiwisolver==1.2.0
 matplotlib==3.3.2
 MIDIUtil==1.2.1
+mido==1.2.9
 numpy==1.19.2
 parso==0.7.1
 pexpect==4.8.0
@@ -26,11 +27,12 @@ Pillow==8.0.0
 prompt-toolkit==3.0.8
 ptyprocess==0.6.0
 py==1.9.0
-pycparser==2.20
 Pygments==2.7.1
 pyparsing==2.4.7
 python-dateutil==2.8.1
+python-rtmidi==1.4.7
 pyzmq==19.0.2
+readline==6.2.4.1
 requests==2.24.0
 six==1.15.0
 sounddevice==0.4.1
