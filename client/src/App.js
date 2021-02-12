@@ -20,7 +20,7 @@ const Details = ({ id, name, parameters, children, implementation }) => {
   const [showImplementation, setShowImplementation] = useState(false)
 
   let paramFrag
-  if (Object.keys(parameters).length) {
+  if (parameters !== undefined && Object.keys(parameters).length) {
     paramFrag = <>
       <h2>Parameters</h2>
       <ul>
@@ -132,6 +132,11 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
     <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset[0] + 'px', left: offset[1] + 'px', zIndex}}>
       <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
         <button className="control" onClick={() => {
+          send({ cmd: "rewind", name })
+        }}>
+          <Icon name="history" />
+        </button>
+        <button className="control" style={{borderLeft: 'none'}} onClick={() => {
           send({ cmd: playing ? "pause" : "play", name })
           setPlaying(!playing)
         }}>
@@ -229,6 +234,7 @@ const REPL = ({ setAppendOutput }) => {
     }
 
     if (event.charCode === KEY_ENTER) {
+      textarea.current.selectionStart = textarea.current.selectionEnd = textarea.current.value.length
       const code = textarea.current.value.slice(inputStart.current)
       console.log("Submitting user code:", code)
       send({ cmd: "exec", code })
@@ -269,12 +275,22 @@ const Tree = ({ tree }) => {
 const VolumeControl = ({ setVolume }) => {
   const [volume, _setVolume] = useState(-6)
   return <>
-    <div style={{position: 'absolute', top: '10px', right: '10px', textAlign: 'center', width: '40px'}}>
+    <div style={{position: 'absolute', top: '40px', left: '10px', textAlign: 'center', width: '40px'}}>
       <div>{volume}</div>
       <input style={{writingMode: 'vertical-lr'}} type="range" min="-72" max="12"
              onChange={(e) => { setVolume(e.target.value); _setVolume(e.target.value) }} value={volume}></input>
     </div>
   </>
+}
+
+const Settings = ({ doRefresh }) => {
+  return <div class="settings">
+    <h2>Settings</h2>
+    <button className="refresh" onClick={doRefresh}>Refresh <Icon name="refresh" /></button>
+    <label>Remember <input id="rewind-time" type="number" defaultValue="1" disabled></input> second</label>
+    <label>Rewind by &nbsp;<input id="rewind-time" type="number" defaultValue="1" disabled></input> second</label>
+    <label>Diverge after rewind <input type="checkbox" disabled></input></label>
+  </div>
 }
 
 let socket
@@ -307,7 +323,7 @@ const App = () => {
 
   return (
     <>
-      <button className="refresh" onClick={() => send({ cmd: "refresh" })}><Icon name="refresh" /></button>
+      <Settings doRefresh={() => send({ cmd: "refresh" })} />
       <Tree tree={tree} />
       {Object.entries(streams).map(([name, stream], index) => {
         return <Stream key={name}
@@ -315,7 +331,7 @@ const App = () => {
                        stream={stream}
                        zIndex={zIndices[name]}
                        moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                       offset={[index*70 + 30, 300]}
+                       offset={[index*70 + 30, 320]}
                        finished={name === finished} />
       })}
       <REPL setAppendOutput={(f) => appendOutput.current = f} />

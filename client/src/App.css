@@ -32,8 +32,26 @@ button.control {
   height: 31px;
 }
 
+.settings {
+  position: absolute;
+  right: 10px;
+  border: 1px solid black;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings > * {
+  margin: 5px;
+}
+
 button.refresh {
   border: 1px solid black;
+  text-align: center;
+}
+
+#rewind-time {
+  width: 4em;
 }
 
 button:hover {
@@ -186,6 +204,7 @@ ul {
 
 div > ul.tree {
   width: 250px;
+  margin-left: 3em;
 }
 
 ul.tree > li {

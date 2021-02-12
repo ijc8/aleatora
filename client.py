@@ -122,8 +122,14 @@ def serialize(stream):
     seen = set()
     def dfs(stream):
         if stream in seen:
-            return {'name': '@' + encode(id(stream)), 'parameters': []}
+            return {'name': '@' + encode(id(stream))}
         seen.add(stream)
+        if not isinstance(stream, Stream):
+            # Handle quick lambdas, etc.
+            if isinstance(stream, types.FunctionType):
+                return {'name': 'raw function'}
+            else:
+                return {'name': f'not a stream: {type(stream)}'}
         info = stream.inspect()
         info['id'] = encode(id(stream))
         info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else convert(p) for n, p in info['parameters'].items()}
@@ -172,6 +178,7 @@ class StreamManager:
         self.streams = {}
         # Map of stream name -> stream
         self.playing_streams = {}
+        self.history_length = SAMPLE_RATE * 1
     
     def __call__(self):
         acc = 0
@@ -184,10 +191,13 @@ class StreamManager:
             else:
                 value, next_stream = result
                 self.playing_streams[name] = next_stream
+                history = self.streams[name][2]
+                history_index = self.streams[name][3]
+                history[history_index] = next_stream
+                self.streams[name][3] = (history_index + 1) % self.history_length
                 acc += value
         for name in to_remove:
-            init_stream = self.streams[name][0]
-            self.streams[name] = (init_stream, init_stream)
+            self.streams[name][1] = self.streams[name][0]
             del self.playing_streams[name]
         return (acc, self)
     
@@ -196,20 +206,27 @@ class StreamManager:
             self.playing_streams[name] = self.streams[name][1]
         else:
             assert(stream is not None)
-            self.streams[name] = (stream, stream)
+            self.streams[name] = [stream, stream, [stream] * self.history_length, 0]
             self.playing_streams[name] = stream
     
     def pause(self, name):
         if name not in self.playing_streams:
             print(f'Warning: {name} is not playing, desync with client.', file=sys.stderr)
             return
-        self.streams[name] = (self.streams[name][0], self.playing_streams[name])
+        self.streams[name][1] = self.playing_streams[name]
         del self.playing_streams[name]
     
     def stop(self, name):
-        self.streams[name] = (self.streams[name][0], self.streams[name][0])
+        if name in self.streams:
+            self.streams[name][1] = self.streams[name][0]
+            if name in self.playing_streams:
+                del self.playing_streams[name]
+    
+    def rewind(self, name):
         if name in self.playing_streams:
-            del self.playing_streams[name]
+            self.playing_streams[name] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
+        else:
+            self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
 
 
 
@@ -252,6 +269,8 @@ async def serve(websocket, path):
                 manager.pause(data['name'])
             elif cmd == 'stop':
                 manager.stop(data['name'])
+            elif cmd == 'rewind':
+                manager.rewind(data['name'])
             elif cmd == 'save':
                 print('save', data)
                 resource = type_map[data['type']](data['payload'])
