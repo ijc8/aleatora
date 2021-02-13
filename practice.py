@@ -701,3 +701,28 @@ def arrange(items):
         prev_start_time = start_time
     return bind(silence[:last_start_time][:prev_start_time], out)
 
+
+# 2/12/21
+
+def arrange(items):
+    items = sorted(items, key=lambda item: item[0], reverse=True)
+    last_start_time, last_end_time, last_stream = items[0]
+    out = lambda r: r + last_stream[:last_end_time-last_start_time]
+    prev_start_time = last_start_time
+    for start_time, end_time, stream in items[1:]:
+        print(last_start_time, start_time, end_time)
+        if end_time:
+            stream = stream[:end_time - start_time]
+        # Sometimes I really wish Python had `let`...
+        out = (lambda start, stream, prev: (lambda r: bind((r + stream)[:start], prev)))(prev_start_time - start_time, stream, out)
+        prev_start_time = start_time
+    return bind(silence[:last_start_time][:prev_start_time], out)
+
+s = arrange([(0.5, 2.0, osc(440)),
+             (1.0, 2.5, osc(660)),
+             (3.0, 3.5, osc(880)),
+             (3.0, None, osc(1100))])
+play(s/2)
+play()
+
+# Finally promoted to core!

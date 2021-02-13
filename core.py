@@ -678,3 +678,35 @@ def normalize(stream):
     a = np.array(l)
     peak = np.max(np.abs(a))
     return list_to_stream(a / peak)
+
+
+# TODO: Make this a method of Stream.
+# Monadic bind:
+@raw_stream
+def bind(a, b):
+    def closure():
+        result = a()
+        if isinstance(result, Return):
+            return b(result.value)()
+        value, next_a = result
+        return (value, bind(next_a, b))
+    return closure
+
+def arrange(items):
+    if not items:
+        return empty
+    items = sorted(items, key=lambda item: item[0], reverse=True)
+    last_start_time, last_end_time, last_stream = items[0]
+    if last_end_time:
+        last_stream = last_stream[:last_end_time - last_start_time]
+    out = lambda r: r + last_stream
+    prev_start_time = last_start_time
+    for start_time, end_time, stream in items[1:]:
+        print(last_start_time, start_time, end_time)
+        if end_time:
+            stream = stream[:end_time - start_time]
+        # Sometimes I really wish Python had `let`...
+        out = (lambda start, stream, prev: (lambda r: bind((r + stream)[:start], prev)))(prev_start_time - start_time, stream, out)
+        prev_start_time = start_time
+    return bind(silence[:last_start_time][:prev_start_time], out)
+

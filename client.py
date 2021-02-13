@@ -80,6 +80,35 @@ class Envelope(Stream):
             "parameters": {"points": self.points}
         }
 
+# Somewhere between basic_sequencer and the MIDI instruments.
+def better_sequencer(notes, bpm=120):
+    print('Notes:', notes)
+    arrangement = []
+    for (start, length, pitch) in notes:
+        start *= 60 / bpm
+        length *= 60 / bpm
+        stream = osc(m2f(pitch)) * basic_envelope(length)
+        arrangement.append((start, None, stream))
+    print('Arranged:', arrangement)
+    return arrange(arrangement)
+
+class Sequence(Stream):
+    def __init__(self, notes):
+        print('SNotes:', notes)
+        self.notes = notes
+    
+    def __call__(self):
+        return better_sequencer(self.notes)()
+    
+    def __str__(self):
+        return "Sequence(...)"
+    
+    def inspect(self):
+        return {
+            "name": "sequence",
+            "parameters": {"notes": self.notes}
+        }
+
 
 # Map resources to their names.
 # This way, we can save back to the correct location, even if the user renamed the resource.
@@ -88,7 +117,10 @@ resource_map = {}
 def make_envelope(points):
     return Envelope([(p['x'], p['y']) for p in points])
 
-type_map = {'envelope': make_envelope}
+def make_sequence(notes):
+    return Sequence([(n['t'], n['g'], n['n']) for n in notes])
+
+type_map = {'envelope': make_envelope, 'sequence': make_sequence}
 
 
 def load(resource_name):
@@ -108,6 +140,8 @@ tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
 my_cool_envelope = load("my_cool_envelope")
 import wav
 my_cool_sound = list_to_stream(wav.load_mono('samples/a.wav'))
+
+my_cool_seq = load("my_cool_seq")
 
 def convert(x):
     if x.__class__.__repr__ == types.FunctionType.__repr__:
@@ -184,18 +218,23 @@ class StreamManager:
         acc = 0
         to_remove = set()
         for name, stream in self.playing_streams.items():
-            result = stream()
-            if isinstance(result, Return):
-                self.finish_callback(name, result.value)
+            try:
+                result = stream()
+                if isinstance(result, Return):
+                    self.finish_callback(name, result.value)
+                    to_remove.add(name)
+                else:
+                    value, next_stream = result
+                    self.playing_streams[name] = next_stream
+                    history = self.streams[name][2]
+                    history_index = self.streams[name][3]
+                    history[history_index] = next_stream
+                    self.streams[name][3] = (history_index + 1) % self.history_length
+                    acc += value
+            except Exception as e:
+                traceback.print_exc()
+                self.finish_callback(name, e)
                 to_remove.add(name)
-            else:
-                value, next_stream = result
-                self.playing_streams[name] = next_stream
-                history = self.streams[name][2]
-                history_index = self.streams[name][3]
-                history[history_index] = next_stream
-                self.streams[name][3] = (history_index + 1) % self.history_length
-                acc += value
         for name in to_remove:
             self.streams[name][1] = self.streams[name][0]
             del self.playing_streams[name]
@@ -258,6 +297,7 @@ async def serve(websocket, path):
         await websocket.send(blob)
         while True:
             data = json.loads(await websocket.recv())
+            print(data)
             cmd = data['cmd']
             if cmd == 'refresh':
                 break
@@ -272,13 +312,12 @@ async def serve(websocket, path):
             elif cmd == 'rewind':
                 manager.rewind(data['name'])
             elif cmd == 'save':
-                print('save', data)
                 resource = type_map[data['type']](data['payload'])
                 resource_name = resource_map.get(streams.get(data['name'], None), data['name'])
                 globals()[data['name']] = resource
                 save(resource, resource_name)
+                break
             elif cmd == 'exec':
-                print('code', data['code'])
                 with stdIO() as s:
                     try:
                         code = compile(data['code'], '<assistant>', 'single')

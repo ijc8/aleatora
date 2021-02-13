@@ -76,6 +76,26 @@ const EnvelopeTab = ({ name, stream }) => {
 
 EnvelopeTab.icon = "insights"
 
+const SequenceTab = ({ name, stream }) => {
+  const roll = useRef(null)
+  const onKeyPress = (event) => {
+    if (event.charCode === KEY_ENTER) {
+      console.log(roll.current.sequence)
+      send({ cmd: "save", type: "sequence", name, payload: roll.current.sequence })
+    }
+  }
+
+  useEffect(() => {
+    console.log("HEY", stream.parameters.notes)
+    roll.current.sequence = stream.parameters.notes.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
+    roll.current.redraw()
+  })
+
+  return <webaudio-pianoroll ref={roll} onKeyPress={onKeyPress} width="498" wheelzoom="1" editmode="dragpoly" colrulerbg="#fff" colrulerfg="#000" colrulerborder="#fff" xruler="20" yruler="20" xscroll="1" yscroll="1"></webaudio-pianoroll>
+}
+
+SequenceTab.icon = "piano"
+
 const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
@@ -126,6 +146,8 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   // TODO: create and consult map of stream type to tabs (might be many-to-many).
   if (stream.name === "envelope") {
     tabs.push(EnvelopeTab)
+  } else if (stream.name === "sequence") {
+    tabs.push(SequenceTab)
   }
 
   return (
@@ -284,12 +306,12 @@ const VolumeControl = ({ setVolume }) => {
 }
 
 const Settings = ({ doRefresh }) => {
-  return <div class="settings">
+  return <div className="settings">
     <h2>Settings</h2>
     <button className="refresh" onClick={doRefresh}>Refresh <Icon name="refresh" /></button>
     <label>Remember <input id="rewind-time" type="number" defaultValue="1" disabled></input> second</label>
     <label>Rewind by &nbsp;<input id="rewind-time" type="number" defaultValue="1" disabled></input> second</label>
-    <label>Diverge after rewind <input type="checkbox" disabled></input></label>
+    <label>Diverge after rewind <input type="checkbox" defaultChecked="true" disabled></input></label>
   </div>
 }
 
