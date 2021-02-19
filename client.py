@@ -3,11 +3,12 @@ import math
 import websockets
 import json
 import types
-import pickle
+import cloudpickle as pickle
 import os
 
 from core import *
 import audio
+from speech import *
 
 # Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
 import sys
@@ -120,7 +121,7 @@ def make_envelope(points):
 def make_sequence(notes):
     return Sequence([(n['t'], n['g'], n['n']) for n in notes])
 
-type_map = {'envelope': make_envelope, 'sequence': make_sequence}
+type_map = {'envelope': make_envelope, 'sequence': make_sequence, 'speech': speech}
 
 
 def load(resource_name):
@@ -139,9 +140,10 @@ tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
 my_cool_envelope = load("my_cool_envelope")
 import wav
-my_cool_sound = list_to_stream(wav.load_mono('samples/a.wav'))
+my_cool_sound = to_stream(wav.load_mono('samples/a.wav'))
 
 my_cool_seq = load("my_cool_seq")
+my_cool_speech = load("my_cool_speech")
 
 def convert(x):
     if x.__class__.__repr__ == types.FunctionType.__repr__:
@@ -293,7 +295,8 @@ async def serve(websocket, path):
         # Send list of streams.
         # TODO: only refresh if streams changed
         streams = get_streams()
-        blob = json.dumps({"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()})
+        dump = {"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()}
+        blob = json.dumps(dump)
         await websocket.send(blob)
         while True:
             data = json.loads(await websocket.recv())

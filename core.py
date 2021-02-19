@@ -441,12 +441,38 @@ def iter_to_stream(iter):
 
 empty = Stream(lambda: Return())
 
+class ListStream(Stream):
+    def __init__(self, list, index=0):
+        self.list = list
+        self.index = index
+    
+    def __call__(self):
+        if self.index < len(self.list):
+            return (self.list[self.index], ListStream(self.list, self.index + 1))
+        return Return()
+    
+    def __len__(self):
+        return len(self.list) - self.index
+    
+    def __str__(self):
+        return f"ListStream([...], index={self.index})"
+    
+    def inspect(self):
+        return {
+            "name": "list",
+            "parameters": {"list": self.list, "index": self.index}
+        }
+
+# TODO: Deprecated, replace references.
 def list_to_stream(l):
-    # Constructs the whole stream immediately.
-    stream = empty
-    for v in l[::-1]:
-        stream = (lambda x, r: Stream(lambda: (x, r)))(v, stream)
-    return NamedStream("list", stream)
+    return ListStream(l)
+
+def to_stream(x):
+    if isinstance(x, Stream):
+        return x
+    if isinstance(x, np.ndarray):
+        return ListStream(x.tolist())
+    return ListStream(x)
 
 @stream
 def osc(freq):

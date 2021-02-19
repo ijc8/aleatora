@@ -7,6 +7,7 @@ from scipy import signal
 from core import *
 from audio import *
 
+@stream
 def speech(text):
     mp3_fp = BytesIO()
     tts = gTTS(text, lang='en')
@@ -14,7 +15,7 @@ def speech(text):
     decoder = MP3Decoder(mp3_fp.getvalue())
     assert(decoder.num_channels == 1)
     data = np.concatenate([np.frombuffer(chunk, dtype=np.int16).copy() for chunk in decoder]).astype(np.float) / np.iinfo(np.int16).max
-    return list_to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
+    return to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
 
 if __name__ == '__main__':
-    run(speech("Hello there!"))
+    run(speech("Hello world!"))

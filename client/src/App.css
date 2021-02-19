@@ -223,3 +223,7 @@ ul.tree > li {
   line-height: 0.7;
   padding: 10px;
 }
+
+textarea.speech {
+  width: 100%;
+}

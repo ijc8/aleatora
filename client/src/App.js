@@ -86,7 +86,6 @@ const SequenceTab = ({ name, stream }) => {
   }
 
   useEffect(() => {
-    console.log("HEY", stream.parameters.notes)
     roll.current.sequence = stream.parameters.notes.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
     roll.current.redraw()
   })
@@ -95,6 +94,25 @@ const SequenceTab = ({ name, stream }) => {
 }
 
 SequenceTab.icon = "piano"
+
+const SpeechTab = ({ name, stream }) => {
+  const textbox = useRef()
+  const onKeyPress = (event) => {
+    if (event.charCode === KEY_ENTER && event.ctrlKey) {
+      send({ cmd: "save", type: "speech", name, payload: textbox.current.value })
+    }
+  }
+  return <textarea ref={textbox} className="speech" type="text" defaultValue={stream.parameters.text} onKeyPress={onKeyPress} />
+}
+
+SpeechTab.icon = "chat"
+
+// For now, this is many-to-one; later it might be many-to-many.
+const tabMap = {
+  "envelope": EnvelopeTab,
+  "sequence": SequenceTab,
+  "speech": SpeechTab,
+}
 
 const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   const movable = useRef(null)
@@ -143,11 +161,8 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   }
 
   let tabs = [InspectorTab]
-  // TODO: create and consult map of stream type to tabs (might be many-to-many).
-  if (stream.name === "envelope") {
-    tabs.push(EnvelopeTab)
-  } else if (stream.name === "sequence") {
-    tabs.push(SequenceTab)
+  if (tabMap[stream.name] !== undefined) {
+    tabs.push(tabMap[stream.name])
   }
 
   return (
