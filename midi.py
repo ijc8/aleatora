@@ -5,7 +5,7 @@ from core import *
 # Example usage:
 # print(mido.get_input_names())  # List available MIDI inputs.
 # p = mido.open_input(mido.get_input_names()[1])
-# play(poly(mono_instrument, event_stream(p)))
+# play(poly_instrument, event_stream(p))
 
 @raw_stream
 def event_stream(port):
@@ -21,8 +21,23 @@ def event_stream(port):
 # (as in converting a monophonic instrument to polyphonic).
 
 
+class Instrument:
+    def __init__(self, make_stream, name="mystery instrument"):
+        self.make_stream = make_stream
+        self.name = name
+    
+    def __call__(self, *args, **kwargs):
+        return self.make_stream(*args, **kwargs)
+
+
+def instrument(f, raw=True):
+    if raw:
+        return Instrument(raw_stream(f), name=f.__name__)
+    return Instrument(stream(f), name=f.__name__)
+
+
 # Simple sine instrument. Acknowledges velocity, retriggers.
-@raw_stream
+@instrument
 def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
     def closure():
         result = stream()
@@ -51,58 +66,64 @@ def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
     return closure
 
 
-# Helper for poly().
-# Provides a 'substream' of messages for a single voice in a polyphonic instrument.
-def _make_event_substream():
-    substream = lambda: (substream.message, substream)
-    substream.message = None
-    return substream
-
 # Convert a monophonic instrument into a polyphonic instrument.
 # Assumes the monophonic instrument takes a boolean argument called `persist`.
-@raw_stream
-def poly(monophonic_instrument, stream, persist=False, substreams={}, voices=[]):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return result
-        event, next_stream = result
-        next_substreams = substreams
-        next_voices = []
-        acc = 0
-        # Clear old messages:
-        for substream in substreams.values():
-            substream.message = None
-        if event:
-            if event.type == 'note_on':
-                if event.note in substreams:
-                    # Retrigger existing voice
-                    substreams[event.note].message = event
-                else:
-                    # New voice
-                    next_substreams = substreams.copy()
-                    substream = _make_event_substream()
-                    substream.message = event
-                    next_substreams[event.note] = substream
-                    new_voice = monophonic_instrument(substream, persist=persist)
-                    # TODO: avoid duplication here?
-                    result = new_voice()
-                    if not isinstance(result, Return):
-                        sample, new_voice = result
-                        acc += sample
-                        next_voices.append(new_voice)
-            elif event.type == 'note_off':
-                if event.note in substreams:
-                    substreams[event.note].message = event
-                    if not persist:
-                        next_substreams = substreams.copy()
-                        del next_substreams[event.note]
+def poly(monophonic_instrument, persist_internal=False):
+    # Provides a 'substream' of messages for a single voice in a polyphonic instrument.
+    def make_event_substream():
+        substream = lambda: (substream.message, substream)
+        substream.message = None
+        return substream
 
-        for voice in voices:
-            result = voice()
-            if not isinstance(result, Return):
-                sample, next_voice = result
-                acc += sample
-                next_voices.append(next_voice)
-        return (acc, poly(monophonic_instrument, next_stream, persist, next_substreams, next_voices))
-    return closure
+    @instrument
+    def polyphonic_instrument(stream, substreams={}, voices=[], persist=True):
+        def closure():
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            event, next_stream = result
+            next_substreams = substreams
+            next_voices = []
+            acc = 0
+            # Clear old messages:
+            for substream in substreams.values():
+                substream.message = None
+            if event:
+                if event.type == 'note_on':
+                    if event.note in substreams:
+                        # Retrigger existing voice
+                        substreams[event.note].message = event
+                    else:
+                        # New voice
+                        next_substreams = substreams.copy()
+                        substream = make_event_substream()
+                        substream.message = event
+                        next_substreams[event.note] = substream
+                        new_voice = monophonic_instrument(substream, persist=persist_internal)
+                        # TODO: avoid duplication here?
+                        result = new_voice()
+                        if not isinstance(result, Return):
+                            sample, new_voice = result
+                            acc += sample
+                            next_voices.append(new_voice)
+                elif event.type == 'note_off':
+                    if event.note in substreams:
+                        substreams[event.note].message = event
+                        if not persist_internal:
+                            next_substreams = substreams.copy()
+                            del next_substreams[event.note]
+
+            if not persist and not next_voices:
+                return Result()
+
+            for voice in voices:
+                result = voice()
+                if not isinstance(result, Return):
+                    sample, next_voice = result
+                    acc += sample
+                    next_voices.append(next_voice)
+            return (acc, polyphonic_instrument(next_stream, next_substreams, next_voices, persist))
+        return closure
+    return polyphonic_instrument
+
+poly_instrument = poly(mono_instrument)

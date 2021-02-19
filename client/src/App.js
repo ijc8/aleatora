@@ -114,7 +114,8 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
+const Stream = ({ type, name, stream, zIndex, moveToTop, offset, finished }) => {
+  // TODO: Separate widget for Instruments.
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
   const [expanded, setExpanded] = useState(-1)
@@ -302,7 +303,7 @@ const Tree = ({ tree }) => {
   return <ul className="tree">
   {Object.entries(tree).map(([name, value]) => {
     return <li key={name}>
-      {name} ({typeof(value) === 'object' ? 'module' : 'stream'})
+      {name}
       {typeof(value) === 'object' && <Tree tree={value} />}
     </li>
   })}
@@ -346,8 +347,9 @@ const App = () => {
     socket = new WebSocket("ws://localhost:8765")
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
-      if (data.type === "streams") {
-        setStreams(data.streams)
+      if (data.type === "resources") {
+        // TODO: s/streams/resources/g
+        setStreams(data.resources)
         setTree(data.tree)
       } else if (data.type === "output") {
         appendOutput.current(data.output)

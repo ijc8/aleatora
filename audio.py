@@ -52,6 +52,9 @@ def volume(vol=None):
         _volume = vol
     return _volume
 
+
+# List devices with sd.query_devices().
+
 def setup(device=None, channels=1):
     global _channels, _stream, _samples
     if _stream:
@@ -59,7 +62,6 @@ def setup(device=None, channels=1):
 
     if device is not None:
         sd.default.device = device
-    # _samples = iter(core.silence)
     _stream = sd.OutputStream(channels=channels, callback=play_callback)
     core.SAMPLE_RATE = _stream.samplerate
     _stream.start()
@@ -67,7 +69,7 @@ def setup(device=None, channels=1):
 
 def play_callback(outdata, frames, time, status):
     global _samples
-    if _samples.returned:
+    if _samples is None or _samples.returned:
         outdata[:frames] = 0
         return
     try:

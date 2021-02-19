@@ -9,6 +9,8 @@ import os
 from core import *
 import audio
 from speech import *
+from midi import *
+
 
 # Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
 import sys
@@ -154,29 +156,36 @@ def convert(x):
 # encode = lambda s: base64.b16encode(to_bytes(s)).decode('utf8')
 encode = lambda s: hex(s)[2:]
 
-def serialize(stream):
+def serialize(resource):
     seen = set()
-    def dfs(stream):
-        if stream in seen:
-            return {'name': '@' + encode(id(stream))}
-        seen.add(stream)
-        if not isinstance(stream, Stream):
-            # Handle quick lambdas, etc.
-            if isinstance(stream, types.FunctionType):
-                return {'name': 'raw function'}
-            else:
-                return {'name': f'not a stream: {type(stream)}'}
-        info = stream.inspect()
-        info['id'] = encode(id(stream))
-        info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else convert(p) for n, p in info['parameters'].items()}
-        if 'children' in info:
-            info['children']['streams'] = list(map(dfs, info['children']['streams']))
-        if 'implementation' in info:
-            info['implementation'] = dfs(info['implementation'])
-        return info
-    return dfs(stream)
+    def dfs(resource):
+        if resource in seen:
+            return {'name': '@' + encode(id(resource))}
+        seen.add(resource)
+        if isinstance(resource, Stream):
+            stream = resource
+            info = stream.inspect()
+            info['type'] = 'stream'
+            info['id'] = encode(id(stream))
+            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else convert(p) for n, p in info['parameters'].items()}
+            if 'children' in info:
+                info['children']['streams'] = list(map(dfs, info['children']['streams']))
+            if 'implementation' in info:
+                info['implementation'] = dfs(info['implementation'])
+            return info
+        elif isinstance(resource, Instrument):
+            return {'type': 'instrument', 'name': resource.name}
+        elif isinstance(resource, types.FunctionType):
+            # May be a quick wrapper lambda, or generally an 'un-Streamified' stream function.
+            # Since we got here from seeing it embedded in a stream, we'll go ahead and assume it's also a stream.
+            return {'type': 'stream', 'name': 'raw function'}
+        else:
+            # Probably an error, if this is embedded where a stream is expected...
+            return {'type': 'unknown', 'name': f'mystery object: {type(resource)}'}
+        
+    return dfs(resource)
 
-def get_stream_tree():
+def get_resource_tree():
     # BFS with cycle detection
     modules_seen = set()
     variables_seen = set()
@@ -189,6 +198,9 @@ def get_stream_tree():
             if isinstance(value, Stream) and (var_name, value) not in variables_seen:
                 variables_seen.add((var_name, value))
                 this[var_name] = var_name  # serialize(stream)
+            elif isinstance(value, Instrument) and (var_name, value) not in variables_seen:
+                variables_seen.add((var_name, value))
+                this[var_name] = var_name
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
@@ -199,8 +211,8 @@ def get_stream_tree():
     return root
 
 
-def get_streams():
-    return {name: value for name, value in globals().items() if isinstance(value, Stream)}
+def get_resources():
+    return {name: value for name, value in globals().items() if isinstance(value, Stream) or isinstance(value, Instrument)}
 
 # https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
 class EventThreadSafe(asyncio.Event):
@@ -266,7 +278,7 @@ class StreamManager:
     def rewind(self, name):
         if name in self.playing_streams:
             self.playing_streams[name] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
-        else:
+        elif name in self.streams:
             self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
 
 
@@ -294,8 +306,8 @@ async def serve(websocket, path):
     while True:
         # Send list of streams.
         # TODO: only refresh if streams changed
-        streams = get_streams()
-        dump = {"type": "streams", "streams": {name: serialize(stream) for name, stream in streams.items()}, "tree": get_stream_tree()}
+        resources = get_resources()
+        dump = {"type": "resources", "resources": {name: serialize(resource) for name, resource in resources.items()}, "tree": get_resource_tree()}
         blob = json.dumps(dump)
         await websocket.send(blob)
         while True:
@@ -307,7 +319,13 @@ async def serve(websocket, path):
             elif cmd == 'play': 
                 name = data['name']
                 playing_stream = name
-                manager.play(name, streams[name])
+                if isinstance(resources[name], Stream):
+                    manager.play(name, resources[name])
+                elif isinstance(resources[name], Instrument):
+                    p = mido.open_input(mido.get_input_names()[1])
+                    manager.play(name, resources[name](event_stream(p)))
+                else:
+                    raise ValueError(f"Expected Stream or Instrument, got {type(resource[name])}.")
             elif cmd == 'pause':
                 manager.pause(data['name'])
             elif cmd == 'stop':
@@ -316,7 +334,7 @@ async def serve(websocket, path):
                 manager.rewind(data['name'])
             elif cmd == 'save':
                 resource = type_map[data['type']](data['payload'])
-                resource_name = resource_map.get(streams.get(data['name'], None), data['name'])
+                resource_name = resource_map.get(resources.get(data['name'], None), data['name'])
                 globals()[data['name']] = resource
                 save(resource, resource_name)
                 break
