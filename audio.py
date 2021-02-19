@@ -16,13 +16,12 @@ def run(composition, blocksize=0):
         for i, sample in zip(range(frames), samples):
             outdata[i] = sample
         if i < frames - 1:
-            print("Finished playing.")
             raise sd.CallbackStop
 
     with sd.OutputStream(channels=1, callback=callback, blocksize=blocksize) as stream:
         core.SAMPLE_RATE = stream.samplerate
         try:
-            while True:
+            while stream.active:
                 sd.sleep(100)
         except KeyboardInterrupt:
             print("Finishing early due to user interrupt.")

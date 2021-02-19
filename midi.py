@@ -1,9 +1,9 @@
 import mido
 from core import *
 
-print(mido.get_input_names())
+# print(mido.get_input_names())
 
-p = mido.open_input(mido.get_input_names()[1])
+# p = mido.open_input(mido.get_input_names()[1])
 
 @raw_stream
 def event_stream(port):
@@ -121,8 +121,8 @@ def polyphonifier(freq_to_stream):
         return closure
     return wrapper
 
-inst = polyphonifier(lambda f: osc(f) * basic_envelope(0.5))
-play(inst(event_stream(p)))
+# inst = polyphonifier(lambda f: osc(f) * basic_envelope(0.5))
+# play(inst(event_stream(p)))
 
 # Easy enough to add velocity (if retriggering is ignored)
 # The next challenge is release.

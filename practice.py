@@ -726,3 +726,323 @@ play(s/2)
 play()
 
 # Finally promoted to core!
+
+
+# 2/15/21
+
+from core import *
+from audio import *
+from midi import *
+
+p = mido.open_input(mido.get_input_names()[1])
+
+inst = polyphonifier(lambda f: osc(f) * basic_envelope(0.5))
+play(inst(event_stream(p)))
+
+play(polyphonic_osc_instrument(event_stream(p)))
+
+# Want to give each monophonic instrument a stream of events, too - which it believes are all the events.
+# Need to keep each voice around after the release, until it finishes on its own.
+# Each voice needs a Stream whereby we control the state - set it just before asking for the next value.
+
+def make_event_substream():
+    substream = lambda: (substream.message, substream)
+    substream.message = None
+    return substream
+
+f = open('hmmmm.txt', 'w')
+
+def polyphonic_instrument(monophonic_instrument, stream, substreams={}, voices=[]):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        next_substreams = substreams
+        next_voices = []
+        acc = 0
+        if event:
+            if event.type == 'note_on':
+                # print(len(voices), file=f)
+                if event.note not in substreams:
+                    next_substreams = substreams.copy()
+                    substream = make_event_substream()
+                    substream.message = event
+                    next_substreams[event.note] = substream
+                    new_voice = monophonic_instrument(substream)
+                    result = new_voice()
+                    if not isinstance(result, Return):
+                        sample, new_voice = result
+                        acc += sample
+                        next_voices.append(new_voice)
+                    substream.message = None
+                # TODO: pass along retriggers
+            elif event.type == 'note_off':
+                if event.note in substreams:
+                    substreams[event.note].message = event
+                    next_substreams = substreams.copy()
+                    del next_substreams[event.note]
+
+        for voice in voices:
+            result = voice()
+            if not isinstance(result, Return):
+                sample, next_voice = result
+                acc += sample
+                next_voices.append(next_voice)
+        return (acc, polyphonic_instrument(monophonic_instrument, next_stream, next_substreams, next_voices))
+    return closure
+
+# aside: maybe we should process all available events in one sample, rather than polling for just one event per sample
+
+def env_osc_instrument(stream, freq=0, phase=0, amp=0, delta_amp=0):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if not event:
+            next_freq = freq
+            next_delta_amp = delta_amp
+        elif event.type == 'note_on':
+            next_freq = m2f(event.note)
+            next_delta_amp = 0.0001
+        elif event.type == 'note_off':
+            next_freq = freq
+            next_delta_amp = -0.0001
+        next_amp = max(0, min(1, amp + delta_amp))
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        return (next_amp * math.sin(next_phase), env_osc_instrument(next_stream, next_freq, next_phase, next_amp, next_delta_amp))
+    return closure
+
+play(env_osc_instrument(event_stream(p)))
+
+play(polyphonic_instrument(env_osc_instrument, event_stream(p)))
+
+# Ah, now the issue is that the monophonic instrument never ceases,
+# so polyphonic_instrument just keeps accumulating (dead) voices...
+
+# wow. made it to 103 concurrent voices before getting consistent stuttering.
+# better than expected, especially with live playback
+# let's finish this up tomorrow.
+# some combination of retrig support (for existing voices) + having monophonic instruments with a 'die after release' option
+
+# 2/17/21
+
+# Retrigger support
+def persistent_polyphonic_instrument(monophonic_instrument, stream, substreams={}, voices=[]):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        next_substreams = substreams
+        next_voices = []
+        acc = 0
+        if event:
+            if event.type == 'note_on':
+                if event.note in substreams:
+                    # Retrigger existing voice
+                    substreams[event.note].message = event
+                else:
+                    # New voice
+                    next_substreams = substreams.copy()
+                    substream = make_event_substream()
+                    substream.message = event
+                    next_substreams[event.note] = substream
+                    new_voice = monophonic_instrument(substream)
+                    result = new_voice()
+                    if not isinstance(result, Return):
+                        sample, new_voice = result
+                        acc += sample
+                        next_voices.append(new_voice)
+                    substream.message = None
+            elif event.type == 'note_off':
+                if event.note in substreams:
+                    substreams[event.note].message = event
+
+        for voice in voices:
+            sample, next_voice = voice()
+            acc += sample
+            next_voices.append(next_voice)
+        return (acc, persistent_polyphonic_instrument(monophonic_instrument, next_stream, next_substreams, next_voices))
+    return closure
+
+def env_osc_instrument(stream, freq=0, phase=0, amp=0, delta_amp=0):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if not event:
+            next_freq = freq
+            next_delta_amp = delta_amp
+        elif event.type == 'note_on':
+            next_freq = m2f(event.note)
+            next_delta_amp = 0.0001
+        elif event.type == 'note_off':
+            next_freq = freq
+            next_delta_amp = -0.0001
+        next_amp = max(0, min(1, amp + delta_amp))
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        return (next_amp * math.sin(next_phase), env_osc_instrument(next_stream, next_freq, next_phase, next_amp, next_delta_amp))
+    return closure
+
+play(persistent_polyphonic_instrument(env_osc_instrument, event_stream(p)))
+
+
+# Options:
+
+def env_osc_instrument(stream, freq=0, phase=0, amp=0, delta_amp=0, persist=True):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if not event:
+            next_freq = freq
+            next_delta_amp = delta_amp
+        elif event.type == 'note_on':
+            next_freq = m2f(event.note)
+            next_delta_amp = 0.0001
+        elif event.type == 'note_off':
+            next_freq = freq
+            next_delta_amp = -0.0001
+        next_amp = max(0, min(1, amp + delta_amp))
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        if not persist and next_amp == 0 and next_delta_amp < 0:
+            return Return()
+        return (next_amp * math.sin(next_phase), env_osc_instrument(next_stream, next_freq, next_phase, next_amp, next_delta_amp, persist))
+    return closure
+
+def poly(monophonic_instrument, stream, persist=False, substreams={}, voices=[]):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        next_substreams = substreams
+        next_voices = []
+        acc = 0
+        # Clear old messages:
+        for substream in substreams.values():
+            substream.message = None
+        if event:
+            if event.type == 'note_on':
+                # print(len(substreams), len(voices), file=f)
+                if event.note in substreams:
+                    # Retrigger existing voice
+                    substreams[event.note].message = event
+                else:
+                    # New voice
+                    next_substreams = substreams.copy()
+                    substream = make_event_substream()
+                    substream.message = event
+                    next_substreams[event.note] = substream
+                    new_voice = monophonic_instrument(substream, persist=persist)
+                    # TODO: avoid duplication here?
+                    result = new_voice()
+                    if not isinstance(result, Return):
+                        sample, new_voice = result
+                        acc += sample
+                        next_voices.append(new_voice)
+            elif event.type == 'note_off':
+                if event.note in substreams:
+                    substreams[event.note].message = event
+                    if not persist:
+                        next_substreams = substreams.copy()
+                        del next_substreams[event.note]
+
+        for voice in voices:
+            result = voice()
+            if not isinstance(result, Return):
+                sample, next_voice = result
+                acc += sample
+                next_voices.append(next_voice)
+        return (acc, poly(monophonic_instrument, next_stream, persist, next_substreams, next_voices))
+    return closure
+
+play(poly(env_osc_instrument, event_stream(p), persist=False))
+
+@raw_stream
+def sfilter(stream, predicate):
+    def closure():
+        next_stream = stream
+        while True:
+            result = next_stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            if predicate(value):
+                return (value, sfilter(next_stream, predicate))
+    return closure
+
+list(sfilter(event_stream(p), lambda x: x is not None)[:5])
+
+# Now with velocity
+
+def better_instrument(stream, freq=0, phase=0, amp=0, delta_amp=0, persist=True):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if not event:
+            next_freq = freq
+            next_delta_amp = delta_amp
+        elif event.type == 'note_on':
+            next_freq = m2f(event.note)
+            next_delta_amp = 1e-6 * event.velocity**2
+        elif event.type == 'note_off':
+            next_freq = freq
+            next_delta_amp = -1e-4
+        next_amp = max(0, min(1, amp + delta_amp))
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        if not persist and next_amp == 0 and next_delta_amp < 0:
+            return Return()
+        return (next_amp * math.sin(next_phase), better_instrument(next_stream, next_freq, next_phase, next_amp, next_delta_amp, persist))
+    return closure
+
+play(poly(better_instrument, event_stream(p), persist=True))
+
+# Idea: ongoing (programmed) rhythm/melodic patterns, but user can control certain underlying pitches used in the program via keyboard
+# (kind of a extension of the arpeggiator, with the clarification that the user's keypresses do not start anything, just change it)
+
+
+# 2/18/2021
+
+from gtts import gTTS
+from io import BytesIO
+from streamp3 import MP3Decoder
+import numpy as np
+from scipy import signal
+
+from core import *
+from audio import *
+
+def speech(text):
+    mp3_fp = BytesIO()
+    tts = gTTS(text, lang='en')
+    tts.write_to_fp(mp3_fp)
+    decoder = MP3Decoder(mp3_fp.getvalue())
+    assert(decoder.num_channels == 1)
+    data = np.concatenate([np.frombuffer(chunk, dtype=np.int16).copy() for chunk in decoder]).astype(np.float) / np.iinfo(np.int16).max
+    return list_to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
+
+s = speech("Hello world!")
+play(s)
+
+def repeat(stream, n):
+    return ConcatStream([stream] * n)
+
+def stutter(stream, size, repeats):
+    return bind(repeat(stream[:size], repeats), lambda rest: stutter(rest, size, repeats) if rest else empty)
+
+play(repeat(s, 3))
+play(stutter(s, 0.1, 2))
+play(stutter(s, 0.09, 5))
+play(stutter(s, 0.07, 20))
+play(stutter(s, 0.01, 20))
+
+play(stutter(s, 0.07, 5) + stutter(list_to_stream(list(s)[::-1]), 0.09, 5))
+
+play(stutter(s, 0.07, 10) + stutter(s, 0.005, 10))
