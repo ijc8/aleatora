@@ -1,132 +1,108 @@
 import mido
 from core import *
 
-# print(mido.get_input_names())
 
+# Example usage:
+# print(mido.get_input_names())  # List available MIDI inputs.
 # p = mido.open_input(mido.get_input_names()[1])
+# play(poly(mono_instrument, event_stream(p)))
 
 @raw_stream
 def event_stream(port):
     return lambda: (port.poll(), event_stream(port))
 
-def osc_instrument(event_stream):
-    playing = False
-    phase = 0
-    freq = 0
-    def handle_event(event):
-        nonlocal playing, phase, freq
-        if event:
-            if event.type == 'note_on':
-                playing = True
-                freq = m2f(event.note)
-            elif event.type == 'note_off':
-                playing = False
-        if playing:
-            phase += 2*math.pi*freq/SAMPLE_RATE
-            return math.sin(phase)
-        else:
-            return 0
-    return event_stream.map(handle_event)
 
-# Obviously, these are highly side-effecty.
-# event_stream for good reason: it reports external state.
-# But osc_instrument could be dealing with a well-behaved event stream (such as a recorded performance),
-# and in that case should also be well-behaved. To that end, let's avoid mutating these captured variables...
+# Instruments take a stream of mido-style messages
+# (objects with `type`, `note`, `velocity` - or None, indicating no message)
+# and produce a stream of samples.
+# Instruments may persist (continue streaming even when they are only producing silence) or not.
+# Persisting is useful for playing an instrument for a live or indeterminate source,
+# while not persisting is useful for sequencing, or building up instruments
+# (as in converting a monophonic instrument to polyphonic).
 
-def osc_instrument(stream, playing=False, freq=None, phase=0):
+
+# Simple sine instrument. Acknowledges velocity, retriggers.
+@raw_stream
+def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
     def closure():
         result = stream()
         if isinstance(result, Return):
             return result
         event, next_stream = result
         if not event:
-            next_playing = playing
             next_freq = freq
+            next_velocity = velocity
         elif event.type == 'note_on':
-            next_playing = True
             next_freq = m2f(event.note)
+            next_velocity = event.velocity
         elif event.type == 'note_off':
-            next_playing = False
-        if next_playing:
-            next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
-            return (math.sin(next_phase), osc_instrument(next_stream, True, next_freq, next_phase))
-        return (0, osc_instrument(next_stream, False, None, 0))
+            next_freq = freq
+            next_velocity = 0
+        target_amp = next_velocity / 127
+        delta_amp = 0
+        if amp > target_amp:
+            next_amp = max(target_amp, amp - 1e-4)
+        else:
+            next_amp = min(target_amp, amp + 1e-6 * next_velocity**2)
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        if not persist and next_amp == 0 and next_velocity == 0:
+            return Return()
+        return (next_amp * math.sin(next_phase), mono_instrument(next_stream, next_freq, next_phase, next_amp, next_velocity, persist))
     return closure
 
-# Need envelopes, velocity, polyphony.
-# Here's an idea.
-# What if each note_on splits into a separate stream?
-# Also polls, but only sees the relevant note_off.
-# Can run its own envelope.
-# Something like...
-# return osc(freq) * continue_stream()
-# or zip(event_stream, osc).split_at((event, _) -> event.type == 'note_off').map((_, sample) -> sample)
-# should consider the old racket code
 
-def polyphonic_osc_instrument(stream, voices={}):
+# Helper for poly().
+# Provides a 'substream' of messages for a single voice in a polyphonic instrument.
+def _make_event_substream():
+    substream = lambda: (substream.message, substream)
+    substream.message = None
+    return substream
+
+# Convert a monophonic instrument into a polyphonic instrument.
+# Assumes the monophonic instrument takes a boolean argument called `persist`.
+@raw_stream
+def poly(monophonic_instrument, stream, persist=False, substreams={}, voices=[]):
     def closure():
         result = stream()
         if isinstance(result, Return):
             return result
         event, next_stream = result
-        next_voices = voices
+        next_substreams = substreams
+        next_voices = []
+        acc = 0
+        # Clear old messages:
+        for substream in substreams.values():
+            substream.message = None
         if event:
             if event.type == 'note_on':
-                if event.note not in voices:
-                    next_voices = voices.copy()
-                    next_voices[event.note] = osc(m2f(event.note))
+                if event.note in substreams:
+                    # Retrigger existing voice
+                    substreams[event.note].message = event
+                else:
+                    # New voice
+                    next_substreams = substreams.copy()
+                    substream = _make_event_substream()
+                    substream.message = event
+                    next_substreams[event.note] = substream
+                    new_voice = monophonic_instrument(substream, persist=persist)
+                    # TODO: avoid duplication here?
+                    result = new_voice()
+                    if not isinstance(result, Return):
+                        sample, new_voice = result
+                        acc += sample
+                        next_voices.append(new_voice)
             elif event.type == 'note_off':
-                if event.note in voices:
-                    next_voices = voices.copy()
-                    del next_voices[event.note]
-        
-        acc = 0
-        real_next_voices = {}
-        for n, s in next_voices.items():
-            x, next_s = s()
-            real_next_voices[n] = next_s
-            acc += x
-        return (acc, polyphonic_osc_instrument(next_stream, real_next_voices))
+                if event.note in substreams:
+                    substreams[event.note].message = event
+                    if not persist:
+                        next_substreams = substreams.copy()
+                        del next_substreams[event.note]
+
+        for voice in voices:
+            result = voice()
+            if not isinstance(result, Return):
+                sample, next_voice = result
+                acc += sample
+                next_voices.append(next_voice)
+        return (acc, poly(monophonic_instrument, next_stream, persist, next_substreams, next_voices))
     return closure
-
-# The nice thing about this is that each voice manages its own state, which also makes it easy to apply envelopes.
-
-def polyphonifier(freq_to_stream):
-    def wrapper(stream, voices={}):
-        def closure():
-            result = stream()
-            if isinstance(result, Return):
-                return result
-            event, next_stream = result
-            next_voices = voices
-            if event:
-                if event.type == 'note_on':
-                    if event.note not in voices:
-                        next_voices = voices.copy()
-                        next_voices[event.note] = freq_to_stream(m2f(event.note))
-                elif event.type == 'note_off':
-                    if event.note in voices:
-                        next_voices = voices.copy()
-                        del next_voices[event.note]
-            
-            acc = 0
-            real_next_voices = {}
-            for n, s in next_voices.items():
-                result = s()
-                if not isinstance(result, Return):
-                    x, next_s = s()
-                    real_next_voices[n] = next_s
-                    acc += x
-            return (acc, wrapper(next_stream, real_next_voices))
-        return closure
-    return wrapper
-
-# inst = polyphonifier(lambda f: osc(f) * basic_envelope(0.5))
-# play(inst(event_stream(p)))
-
-# Easy enough to add velocity (if retriggering is ignored)
-# The next challenge is release.
-# Need a way to communicate release to the voice streams.
-# Could expand the notion of stream by allowing the voice stream to take a parameter...
-# But, of course, that would not fit with anything else. (How could this be combined with normal streams?)
-# May have to cheat with state...

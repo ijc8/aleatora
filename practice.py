@@ -1046,3 +1046,89 @@ play(stutter(s, 0.01, 20))
 play(stutter(s, 0.07, 5) + stutter(list_to_stream(list(s)[::-1]), 0.09, 5))
 
 play(stutter(s, 0.07, 10) + stutter(s, 0.005, 10))
+
+# 2/19/2021
+
+# Velocity should affect final volume, not just the attack time.
+@raw_stream
+def cool_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if not event:
+            next_freq = freq
+            next_velocity = velocity
+        elif event.type == 'note_on':
+            next_freq = m2f(event.note)
+            next_velocity = event.velocity
+        elif event.type == 'note_off':
+            next_freq = freq
+            next_velocity = 0
+        target_amp = next_velocity / 127
+        delta_amp = 0
+        if amp > target_amp:
+            next_amp = max(target_amp, amp - 1e-4)
+        else:
+            next_amp = min(target_amp, amp + 1e-6 * next_velocity**2)
+        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
+        if not persist and next_amp == 0 and next_velocity == 0:
+            return Return()
+        return (next_amp * math.sin(next_phase), cool_instrument(next_stream, next_freq, next_phase, next_amp, next_velocity, persist))
+    return closure
+
+# Bring it back:
+def make_event_substream():
+    substream = lambda: (substream.message, substream)
+    substream.message = None
+    return substream
+
+@raw_stream
+def poly(monophonic_instrument, stream, persist=False, substreams={}, voices=[]):
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        next_substreams = substreams
+        next_voices = []
+        acc = 0
+        # Clear old messages:
+        for substream in substreams.values():
+            substream.message = None
+        if event:
+            if event.type == 'note_on':
+                if event.note in substreams:
+                    # Retrigger existing voice
+                    substreams[event.note].message = event
+                else:
+                    # New voice
+                    next_substreams = substreams.copy()
+                    substream = make_event_substream()
+                    substream.message = event
+                    next_substreams[event.note] = substream
+                    new_voice = monophonic_instrument(substream, persist=persist)
+                    # TODO: avoid duplication here?
+                    result = new_voice()
+                    if not isinstance(result, Return):
+                        sample, new_voice = result
+                        acc += sample
+                        next_voices.append(new_voice)
+            elif event.type == 'note_off':
+                if event.note in substreams:
+                    substreams[event.note].message = event
+                    if not persist:
+                        next_substreams = substreams.copy()
+                        del next_substreams[event.note]
+
+        for voice in voices:
+            result = voice()
+            if not isinstance(result, Return):
+                sample, next_voice = result
+                acc += sample
+                next_voices.append(next_voice)
+        return (acc, poly(monophonic_instrument, next_stream, persist, next_substreams, next_voices))
+    return closure
+
+play(poly(cool_instrument, event_stream(p)))
