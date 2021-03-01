@@ -147,10 +147,11 @@ my_cool_sound = to_stream(wav.load_mono('samples/a.wav'))
 my_cool_seq = load("my_cool_seq")
 my_cool_speech = load("my_cool_speech")
 
-def convert(x):
-    if x.__class__.__repr__ == types.FunctionType.__repr__:
-        return '<function>'
-    return x
+class MyEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, types.FunctionType):
+            return '<function>'
+        return o.__dict__
 
 # to_bytes = lambda x: x.to_bytes(math.ceil(math.log2(x+1)/8), 'big')
 # encode = lambda s: base64.b16encode(to_bytes(s)).decode('utf8')
@@ -167,7 +168,7 @@ def serialize(resource):
             info = stream.inspect()
             info['type'] = 'stream'
             info['id'] = encode(id(stream))
-            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else convert(p) for n, p in info['parameters'].items()}
+            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
             if 'children' in info:
                 info['children']['streams'] = list(map(dfs, info['children']['streams']))
             if 'implementation' in info:
@@ -219,6 +220,27 @@ class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
 
+# TODO: move to core.
+# @stream
+# def just(item):
+#     return Stream(lambda: (item, empty))
+
+@stream
+def cons(item, stream):
+    return Stream(lambda: (item, stream))
+
+def just(item):  # rename so `just` can just return a value?
+    return cons(item, empty)
+
+@stream
+def events_in_time(timed_events, filler=None):
+    stream = empty
+    last_time = 0
+    for time, event in timed_events:
+        stream = stream >> const(filler)[:time - last_time] >> just(event)
+        last_time = time + 1  # account for the fact that just(item) has length 1.
+    return stream
+
 class StreamManager:
     def __init__(self, finish_callback):
         self.finish_callback = finish_callback
@@ -255,6 +277,14 @@ class StreamManager:
         return (acc, self)
     
     def play(self, name, stream):
+        # TODO: rename stream -> resource
+        if isinstance(stream, Stream):
+            stream = stream
+        elif isinstance(stream, Instrument):
+            p = mido.open_input(mido.get_input_names()[1])
+            stream = stream(event_stream(p))
+        else:
+            raise ValueError(f"Expected Stream or Instrument, got {type(stream)}.")
         if name in self.streams and self.streams[name][0] is stream:
             self.playing_streams[name] = self.streams[name][1]
         else:
@@ -268,6 +298,33 @@ class StreamManager:
             return
         self.streams[name][1] = self.playing_streams[name]
         del self.playing_streams[name]
+    
+    def record(self, name, instrument):
+        # This plays the instrument with live MIDI data, like play(),
+        # but it also puts a layer in the middle that captures that MIDI data, for later playback.
+        # Right now this creates a stream that plays back the MIDI data with the same instrument,
+        # but this should create an object that is visible and editable (as a piano roll),
+        # and replayable (using this or any other instrument).
+
+        p = mido.open_input(mido.get_input_names()[1])
+        self.list_of_events = []
+        timer = 0
+        def callback(event):
+            nonlocal timer
+            if event is not None:
+                self.list_of_events.append((timer, event))
+            timer += 1
+            return event
+        def finish():
+            print(self.list_of_events)
+            global recorded_stream
+            recorded_stream = instrument(events_in_time(self.list_of_events))
+            return (0, empty)
+        # TODO: for now, this just records the next 5 seconds, but it should record until stopped.
+        self.play(name, instrument(event_stream(p)[:5.0].map(callback)) >> finish)
+        # Note that we could make an /audio-level/ recording instead by memoizing
+        # Instead of actually using memoize(), would use callback() to append to an internal list_of_samples.
+        # Create a ListStream afterwards.
     
     def stop(self, name):
         if name in self.streams:
@@ -308,7 +365,7 @@ async def serve(websocket, path):
         # TODO: only refresh if streams changed
         resources = get_resources()
         dump = {"type": "resources", "resources": {name: serialize(resource) for name, resource in resources.items()}, "tree": get_resource_tree()}
-        blob = json.dumps(dump)
+        blob = json.dumps(dump, cls=MyEncoder)
         await websocket.send(blob)
         while True:
             data = json.loads(await websocket.recv())
@@ -319,15 +376,12 @@ async def serve(websocket, path):
             elif cmd == 'play': 
                 name = data['name']
                 playing_stream = name
-                if isinstance(resources[name], Stream):
-                    manager.play(name, resources[name])
-                elif isinstance(resources[name], Instrument):
-                    p = mido.open_input(mido.get_input_names()[1])
-                    manager.play(name, resources[name](event_stream(p)))
-                else:
-                    raise ValueError(f"Expected Stream or Instrument, got {type(resource[name])}.")
+                manager.play(name, resources[name])
             elif cmd == 'pause':
                 manager.pause(data['name'])
+            elif cmd == 'record':
+                name = data['name']
+                manager.record(name, resources[name])
             elif cmd == 'stop':
                 manager.stop(data['name'])
             elif cmd == 'rewind':

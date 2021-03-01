@@ -6,7 +6,7 @@ import './App.css'
 // Parameter: map from String => Stream info or String (__repr__)
 // Children: { streams: [Stream info], direction: String, separator: String }
 
-const Icon = ({ name }) => <i className="material-icons">{name}</i>
+const Icon = ({ name, style }) => <i className="material-icons" style={style}>{name}</i>
 
 const Value = ({value}) => {
   if (Array.isArray(value) || ["number", "string", "boolean"].includes(typeof value)) {
@@ -114,7 +114,7 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const Stream = ({ type, name, stream, zIndex, moveToTop, offset, finished }) => {
+const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
   // TODO: Separate widget for Instruments.
   const movable = useRef(null)
   const [moving, setMoving] = useState(false)
@@ -180,6 +180,10 @@ const Stream = ({ type, name, stream, zIndex, moveToTop, offset, finished }) => 
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
         </button>
+        {stream.type === 'instrument' &&
+        <button className="control" style={{borderLeft: 'none'}} onClick={() => send({ cmd: "record", name })}>
+          <Icon name="fiber_manual_record" style={{color: "red", fontSize: "18px", paddingLeft: "2px", paddingBottom: "1px"}} />
+        </button>}
         <button className="control" style={{borderLeft: 'none'}} onClick={() => {
           send({ cmd: "stop", name })
           setPlaying(false)
