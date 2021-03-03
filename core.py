@@ -736,3 +736,19 @@ def arrange(items):
         prev_start_time = start_time
     return bind(silence[:last_start_time][:prev_start_time], out)
 
+# More new stuff (3/2):
+@stream
+def cons(item, stream):
+    return Stream(lambda: (item, stream))
+
+def just(item):  # rename so `just` can just return a value?
+    return cons(item, empty)
+
+@stream
+def events_in_time(timed_events, filler=None):
+    stream = empty
+    last_time = 0
+    for time, event in timed_events:
+        stream = stream >> const(filler)[:time - last_time] >> just(event)
+        last_time = time + 1  # account for the fact that just(item) has length 1.
+    return stream

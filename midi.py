@@ -127,3 +127,16 @@ def poly(monophonic_instrument, persist_internal=False):
     return polyphonic_instrument
 
 poly_instrument = poly(mono_instrument)
+
+
+# Takes [(pitch, duration)] and converts it to a Stream of Messages.
+# TODO: support velocity?
+# TODO: allow sequence to be a stream?
+def seq_to_events(sequence, bpm=60):
+    events = []
+    time = 0
+    for pitch, duration in sequence:
+        events.append((int(time), mido.Message(type='note_on', note=pitch)))
+        time += duration * 60 / bpm * SAMPLE_RATE
+        events.append((int(time) - 1, mido.Message(type='note_off')))
+    return events_in_time(events)

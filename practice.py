@@ -1132,3 +1132,179 @@ def poly(monophonic_instrument, stream, persist=False, substreams={}, voices=[])
     return closure
 
 play(poly(cool_instrument, event_stream(p)))
+
+# 3/3/2021
+
+from core import *
+from audio import *
+# wavetable
+# one period of 441 Hz at 44.1kHz sample rate
+# period is 1/441 seconds. 44.1 samples/second * (1/441 seconds) = 100 samples
+period = list(osc(441)[:100])
+play(cycle(to_stream(period)))
+# Yep, that sounds about right.
+play()
+# Alex Strong's December 1978 idea
+# For now, we will mutate.
+def decay_cycle(list):
+    def f(t):
+        value = list[t % len(list)]
+        list[t % len(list)] = 0.5*(value + list[(t-1) % len(list)])
+        return value
+    return count().map(f)
+
+play(decay_cycle(period[:]))
+play()
+
+# TODO: overload '-' operator.
+period = list((rand + -0.5)[:100])
+play(cycle(to_stream(period)))
+play()
+# You know. I never really thought about it, but the fact that the above works is remarkable. It doesn't matter that much /what/ is in the buffer; just that it repeats.
+play(decay_cycle(list((rand*2 + -1)[:100])))
+play()
+
+randbits = NamedStream("randbits", lambda: (random.getrandbits(1), randbits))
+play(decay_cycle(list((randbits*2 + -1)[:100])))
+
+# Karplus, December 1979
+def drum_cycle(list, b):
+    def f(t):
+        value = list[t % len(list)]
+        list[t % len(list)] = (0.5 if random.random() < b else -0.5)*(value + list[(t-1) % len(list)])
+        return value
+    return count().map(f)
+
+play(drum_cycle(list((randbits*2 + -1)[:800]), 0.6))
+play(drum_cycle(list(ones[:800]), 0.6))
+play()
+
+# The "harmonic trick":
+play(decay_cycle(list((randbits*2 + -1)[:100])*4))
+
+def stretched_decay_cycle(list, S):
+    def f(t):
+        value = list[t % len(list)]
+        if random.random() < 1/S:
+            list[t % len(list)] = 0.5*(value + list[(t-1) % len(list)])
+        return value
+    return count().map(f)
+
+play(stretched_decay_cycle(list((randbits*2 + -1)[:100]), 1))
+# Period is about p + 1/(2S)
+play(stretched_decay_cycle(list(osc(441/2)[:200]), 1.2))
+
+def stretched_drum_cycle(list, b, S):
+    def f(t):
+        value = list[t % len(list)]
+        sign = 1 if random.random() < b else -1
+        if random.random() < 1/S:
+            list[t % len(list)] = sign*0.5*(value + list[(t-1) % len(list)])
+        else:
+            list[t % len(list)] *= sign
+        return value
+    return count().map(f)
+
+play(stretched_drum_cycle(list((randbits*2 + -1)[:800]), 0.6, 2))
+play()
+
+# My main issue (which also affects the feasibility of speeding up osc): how to get periods in between increments of p?
+
+
+play(decay_cycle(list((randbits*2 + -1)[:300])))
+
+# Hmm. I think the above may have implicitly been the Siegel variant.
+def two_point_recurrence(y, c, d, g, h):
+    def f(t):
+        value = y[t % len(y)]
+        y[t % len(y)] = c*y[(t-g) % len(y)] + d*y[(t-h) % len(y)]
+        return value
+    return count().map(f)
+
+play(two_point_recurrence(list((randbits*2 + -1)[:300])*2, 0.5, 0.5, 300, 301))
+
+def multiplicative_decay_stretching(S):
+    return two_point_recurrence(list((randbits*2 + -1)[:300])*2, 1-1/(2*S), 1/(2*S), 300, 301)
+
+play(multiplicative_decay_stretching(1))
+
+def decay_cycle(y):
+    def f(t):
+        value = y[t % len(y)]
+        y[t % len(y)] = 0.5*(value + y[(t-1) % len(y)])
+        return value
+    return count().map(f)
+
+play(decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 55])))
+play(resample(decay_cycle(list((randbits*2 + -1)[:8000 // 55])), const(8000/SAMPLE_RATE)))
+
+# This version returns the new values immediately, effectively skipping the first period (the original wavetable)
+def alt_decay_cycle(y):
+    def f(t):
+        value = 0.5*(y[t % len(y)] + y[(t-1) % len(y)])
+        y[t % len(y)] = value
+        return value
+    return count().map(f)
+
+play(decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 55])))
+play(alt_decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 55])))
+
+def pluck(p, s=1):
+    return two_point_recurrence(list((randbits*2 + -1)[:p]), 1-1/(2*s), 1/(2*s), p, p+1)
+
+play(decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 55])))
+play(pluck(SAMPLE_RATE // 55, 0.6))
+import graph
+graph.plot(pluck(SAMPLE_RATE // 55, 0.6)[:1.0])
+graph.plot(resample(decay_cycle(list((randbits*2 + -1)[:8000 // 55])), const(8000/SAMPLE_RATE))[:1.0])
+play(pluck(SAMPLE_RATE // 55, 0.6)[:5.0])
+
+class SampleRateContext:
+    def __init__(self, sample_rate):
+        self.sample_rate = sample_rate
+
+    def __enter__(self):
+        global SAMPLE_RATE
+        self.old_sample_rate = SAMPLE_RATE
+        SAMPLE_RATE = self.sample_rate
+    
+    def __exit__(self, *_):
+        global SAMPLE_RATE
+        SAMPLE_RATE = self.old_sample_rate
+
+play(pluck(SAMPLE_RATE // 55, 0.6))
+with SampleRateContext(8000):
+    play(pluck(SAMPLE_RATE // 55, 0.6))
+
+# Should this also wrap the execution of the stream itself?
+def run_at_rate(sample_rate, function):
+    with SampleRateContext(sample_rate):
+        stream = function()
+    return resample(stream, const(sample_rate/SAMPLE_RATE))
+
+play(run_at_rate(8000, lambda: pluck(SAMPLE_RATE // 55, 1)))
+
+message = [None]
+
+def mono_guitar(stream, s=1, length=3.0, persist=False):
+    assert(persist == False)
+    def closure():
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        event, next_stream = result
+        if event: print(event)
+        if event and event.type == 'note_on':
+            message[0] = ("Woo", event.velocity, event.note)
+            return (event.velocity / 127 * pluck(int(SAMPLE_RATE / m2f(event.note)), s=s)[:length])()
+        return (0, mono_guitar(next_stream))
+    return closure
+
+from midi import *
+p = mido.open_input(mido.get_input_names()[1])
+play(mono_guitar(event_stream(p)))
+
+play(80 / 127 * pluck(int(SAMPLE_RATE / m2f(60)))[:1.0])
+
+play(poly(lambda *args, **kwargs: mono_guitar(*args, **kwargs, s=0.7))(event_stream(p)))
+play()

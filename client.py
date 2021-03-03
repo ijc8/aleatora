@@ -220,26 +220,11 @@ class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
 
-# TODO: move to core.
-# @stream
-# def just(item):
-#     return Stream(lambda: (item, empty))
-
-@stream
-def cons(item, stream):
-    return Stream(lambda: (item, stream))
-
-def just(item):  # rename so `just` can just return a value?
-    return cons(item, empty)
-
-@stream
-def events_in_time(timed_events, filler=None):
-    stream = empty
-    last_time = 0
-    for time, event in timed_events:
-        stream = stream >> const(filler)[:time - last_time] >> just(event)
-        last_time = time + 1  # account for the fact that just(item) has length 1.
-    return stream
+def play(stream=None):
+    if stream:
+        manager.play(None, stream)
+    else:
+        manager.stop(None)
 
 class StreamManager:
     def __init__(self, finish_callback):
@@ -348,6 +333,7 @@ async def serve(websocket, path):
         finished.append(name)
         finished_event.set()
 
+    global manager
     manager = StreamManager(finish_callback)
     audio.play(manager)
 
