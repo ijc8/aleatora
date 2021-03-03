@@ -5,6 +5,7 @@ import json
 import types
 import cloudpickle as pickle
 import os
+import queue
 
 from core import *
 import audio
@@ -233,20 +234,35 @@ class StreamManager:
         self.streams = {}
         # Map of stream name -> stream
         self.playing_streams = {}
+        # For thread-safety, we only mutate self.playing_streams in one thread.
+        # Queue of (name, stream). `stream is None` indicates deletion.
+        self.to_change = queue.Queue()
         self.history_length = SAMPLE_RATE * 1
     
     def __call__(self):
+        # First, process any queued changes:
+        while True:
+            try:
+                name, stream = self.to_change.get(block=False)
+            except queue.Empty:
+                break
+            if stream:
+                self.playing_streams[name] = stream
+            elif name in self.playing_streams:
+                del self.playing_streams[name]
         acc = 0
-        to_remove = set()
+        # Not sure if it's better to put the next streams in a new dictionary, or re-use the old one.
+        # (Re-use requires keeping track of which entries should be deleted, and doing that afterwards.)
+        next_playing_streams = {}
         for name, stream in self.playing_streams.items():
             try:
                 result = stream()
                 if isinstance(result, Return):
                     self.finish_callback(name, result.value)
-                    to_remove.add(name)
+                    self.streams[name][1] = self.streams[name][0]
                 else:
                     value, next_stream = result
-                    self.playing_streams[name] = next_stream
+                    next_playing_streams[name] = next_stream
                     history = self.streams[name][2]
                     history_index = self.streams[name][3]
                     history[history_index] = next_stream
@@ -255,10 +271,8 @@ class StreamManager:
             except Exception as e:
                 traceback.print_exc()
                 self.finish_callback(name, e)
-                to_remove.add(name)
-        for name in to_remove:
-            self.streams[name][1] = self.streams[name][0]
-            del self.playing_streams[name]
+                self.streams[name][1] = self.streams[name][0]
+        self.playing_streams = next_playing_streams
         return (acc, self)
     
     def play(self, name, stream):
@@ -271,18 +285,18 @@ class StreamManager:
         else:
             raise ValueError(f"Expected Stream or Instrument, got {type(stream)}.")
         if name in self.streams and self.streams[name][0] is stream:
-            self.playing_streams[name] = self.streams[name][1]
+            self.to_change.put((name, self.streams[name][1]))
         else:
             assert(stream is not None)
             self.streams[name] = [stream, stream, [stream] * self.history_length, 0]
-            self.playing_streams[name] = stream
+            self.to_change.put((name, stream))
     
     def pause(self, name):
         if name not in self.playing_streams:
             print(f'Warning: {name} is not playing, desync with client.', file=sys.stderr)
             return
         self.streams[name][1] = self.playing_streams[name]
-        del self.playing_streams[name]
+        self.to_change.put((name, None))
     
     def record(self, name, instrument):
         # This plays the instrument with live MIDI data, like play(),
@@ -314,12 +328,11 @@ class StreamManager:
     def stop(self, name):
         if name in self.streams:
             self.streams[name][1] = self.streams[name][0]
-            if name in self.playing_streams:
-                del self.playing_streams[name]
+            self.to_change.put((name, None))
     
     def rewind(self, name):
         if name in self.playing_streams:
-            self.playing_streams[name] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
+            self.to_change.put((name, self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]))
         elif name in self.streams:
             self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
 

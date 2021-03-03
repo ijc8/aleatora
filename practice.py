@@ -1308,3 +1308,15 @@ play(80 / 127 * pluck(int(SAMPLE_RATE / m2f(60)))[:1.0])
 
 play(poly(lambda *args, **kwargs: mono_guitar(*args, **kwargs, s=0.7))(event_stream(p)))
 play()
+
+# different filter: [1/2, 0, 1/2] instead of [1/2, 1/2]; fundamental is p instead of p+1/2
+def variant(y):
+    def f(t):
+        value = y[t % len(y)]
+        y[t % len(y)] = 0.5*(y[(t+1) % len(y)] + y[(t-1) % len(y)])
+        return value
+    return count().map(f)
+
+play(decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 110])))
+play(variant(list((randbits*2 + -1)[:SAMPLE_RATE // 110])))
+
