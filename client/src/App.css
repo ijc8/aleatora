@@ -202,14 +202,45 @@ ul {
   list-style: none;
 }
 
-div > ul.tree {
-  width: 250px;
+.resource-tree {
   margin-left: 3em;
+  width: 250px;
+  overflow: auto;
+}
+
+.resource-tree > input {
+  width: 100%;
+  border: 1px solid black;
+  padding: 0.5em;
+  margin: 0;
+}
+
+.resource-tree ul {
+  margin: 0;
+  padding: 0;
+}
+
+.tree-spacer {
+  display: inline-block;
+  width: 20px;
+  height: 24px;
+}
+
+.resource-tree ul {
+  margin: 0;
+  padding: 0;
+}
+
+.resource-tree ul ul {
+  padding-left: 20px;
+}
+
+.resource-tree li {
+  padding: 0;
 }
 
 ul.tree > li {
   border: 1px solid black;
-  padding: 6px;
 }
 
 .envelope-toolbar {

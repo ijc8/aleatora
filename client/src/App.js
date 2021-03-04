@@ -302,16 +302,46 @@ const REPL = ({ setAppendOutput }) => {
   </div>
 }
 
-const Tree = ({ tree }) => {
-  console.log(tree)
-  return <ul className="tree">
-  {Object.entries(tree).map(([name, value]) => {
-    return <li key={name}>
-      {name}
-      {typeof(value) === 'object' && <Tree tree={value} />}
-    </li>
-  })}
-  </ul>
+const filterTree = (tree, filter) => {
+  const filtered = {}
+  Object.entries(tree).forEach(([name, value]) => {
+    if (typeof(value) === 'object') {
+      const subtree = filterTree(value, filter)
+      if (Object.keys(subtree).length) {
+        filtered[name] = subtree
+      }
+    } else if (name.includes(filter)) {
+      filtered[name] = value
+    }
+  })
+  return filtered
+}
+
+const ResourceTree = ({ tree }) => {
+  const [filter, setFilter] = useState("")
+  const Node = ({ name, tree }) => {
+    const [expand, setExpand] = useState(true)
+    return <>
+      {name &&
+      <div className="tree-spacer">
+        {typeof(tree) === 'object' ?
+          <button style={{width: '100%', textAlign: 'center', padding: '0'}} onClick={() => setExpand(!expand)}><Icon name={`expand_${expand ? 'less' : 'more'}`} /></button>
+        : <span style={{display: 'inline-block' /* why? */}}></span>}
+      </div>}
+      <span style={{verticalAlign: 'middle'}}>{name}</span>
+      {typeof(tree) === 'object' && expand &&
+      <ul className="tree">
+        {Object.entries(tree).map(([name, value]) => <li key={name}>
+          <Node name={name} tree={value} />
+        </li>)}
+      </ul>}
+    </>
+  }
+
+  return <div className="resource-tree">
+    <input type="text" placeholder="Filter resources" value={filter} onChange={(e) => setFilter(e.target.value)} />
+    <Node tree={filterTree(tree, filter)} />
+  </div>
 }
 
 const VolumeControl = ({ setVolume }) => {
@@ -367,7 +397,7 @@ const App = () => {
   return (
     <>
       <Settings doRefresh={() => send({ cmd: "refresh" })} />
-      <Tree tree={tree} />
+      <ResourceTree tree={tree} />
       {Object.entries(streams).map(([name, stream], index) => {
         return <Stream key={name}
                        name={name}
