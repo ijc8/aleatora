@@ -187,33 +187,37 @@ def serialize(resource):
         
     return dfs(resource)
 
-def get_resource_tree():
-    # BFS with cycle detection
+def get_resources():
+    # Collect the resources within each module.
     modules_seen = set()
     variables_seen = set()
-    root = {}
-    queue = [('__main__', sys.modules['__main__'], None)]
+    resources = {}
+    queue = [('__main__', sys.modules['__main__'])]
     while queue:
-        name, module, parent = queue.pop()
-        this = {} if parent else root
+        name, module = queue.pop()
+        if name in core.stream_registry:
+            for var_name, value in core.stream_registry[name].items():
+                if value.__module__ not in resources:
+                    resources[value.__module__] = {}
+                resources[value.__module__][var_name] = "TODO fn"
         for var_name, value in module.__dict__.items():
-            if isinstance(value, Stream) and (var_name, value) not in variables_seen:
-                variables_seen.add((var_name, value))
-                this[var_name] = var_name  # serialize(stream)
-            elif isinstance(value, Instrument) and (var_name, value) not in variables_seen:
-                variables_seen.add((var_name, value))
-                this[var_name] = var_name
+            if isinstance(value, Stream):
+                if value.__module__ not in resources:
+                    resources[value.__module__] = {}
+                resources[value.__module__][var_name] = "TODO stream"  # serialize(stream)
+            elif isinstance(value, Instrument):
+                if value.__module__ not in resources:
+                    resources[value.__module__] = {}
+                resources[value.__module__][var_name] = "TODO instrument"
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
                 modules_seen.add(value)
-                queue.append((var_name, value, this))
-        if parent and this:
-            parent[name] = this
-    return root
+                queue.append((var_name, value))
+    return resources
 
 
-def get_resources():
+def get_resources_old():
     return {name: value for name, value in globals().items() if isinstance(value, Stream) or isinstance(value, Instrument)}
 
 # https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
@@ -362,8 +366,8 @@ async def serve(websocket, path):
     while True:
         # Send list of streams.
         # TODO: only refresh if streams changed
-        resources = get_resources()
-        dump = {"type": "resources", "resources": {name: serialize(resource) for name, resource in resources.items()}, "tree": get_resource_tree()}
+        resources = get_resources_old()
+        dump = {"type": "resources", "resources_old": {name: serialize(resource) for name, resource in resources.items()}, "resources": get_resources()}
         blob = json.dumps(dump, cls=MyEncoder)
         await websocket.send(blob)
         while True:

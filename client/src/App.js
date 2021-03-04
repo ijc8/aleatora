@@ -23,7 +23,7 @@ const Details = ({ id, name, parameters, children, implementation }) => {
   if (parameters !== undefined && Object.keys(parameters).length) {
     paramFrag = <>
       <h2>Parameters</h2>
-      <ul>
+      <ul className="parameter-list">
         {Object.entries(parameters).map(([n, p]) => <li key={n}>{n} = <Value key={n} value={p} /></li>)}
       </ul>
     </>
@@ -317,30 +317,33 @@ const filterTree = (tree, filter) => {
   return filtered
 }
 
-const ResourceTree = ({ tree }) => {
-  const [filter, setFilter] = useState("")
-  const Node = ({ name, tree }) => {
-    const [expand, setExpand] = useState(true)
-    return <>
-      {name &&
-      <div className="tree-spacer">
-        {typeof(tree) === 'object' ?
-          <button style={{width: '100%', textAlign: 'center', padding: '0'}} onClick={() => setExpand(!expand)}><Icon name={`expand_${expand ? 'less' : 'more'}`} /></button>
-        : <span style={{display: 'inline-block' /* why? */}}></span>}
-      </div>}
-      <span style={{verticalAlign: 'middle'}}>{name}</span>
-      {typeof(tree) === 'object' && expand &&
-      <ul className="tree">
-        {Object.entries(tree).map(([name, value]) => <li key={name}>
-          <Node name={name} tree={value} />
-        </li>)}
-      </ul>}
-    </>
-  }
+const Resource = ({ name, value }) => {
+  return <li><span className="resource-name">{name} - {value}</span></li>
+}
 
-  return <div className="resource-tree">
+const Module = ({ name, resources, expand, setExpand }) => (
+  <li>
+    <div className="module-header">
+      <button className="module-toggle" onClick={() => setExpand(!expand)}><Icon name={`expand_${expand ? 'less' : 'more'}`} /></button>
+      <span className="module-name">{name}</span>
+    </div>
+    {expand &&
+    <ul className="resource-list">
+      {Object.entries(resources).map(([name, value]) => <Resource key={name} name={name} value={value} />)}
+    </ul>}
+  </li>
+)
+
+const ResourcePane = ({ resources }) => {
+  const [filter, setFilter] = useState("")
+  const [expand, setExpand] = useState({})
+  resources = filterTree(resources, filter)
+  return <div className="resource-pane">
     <input type="text" placeholder="Filter resources" value={filter} onChange={(e) => setFilter(e.target.value)} />
-    <Node tree={filterTree(tree, filter)} />
+    <ul className="module-list">
+      {Object.entries(resources).map(([name, value]) =>
+        <Module key={name} name={name} resources={value} expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })} />)}
+    </ul>
   </div>
 }
 
@@ -371,7 +374,7 @@ const send = (obj) => socket.send(JSON.stringify(obj))
 
 const App = () => {
   const [streams, setStreams] = useState([])
-  const [tree, setTree] = useState({})
+  const [resources, setResources] = useState({})
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
@@ -383,8 +386,8 @@ const App = () => {
       const data = JSON.parse(event.data)
       if (data.type === "resources") {
         // TODO: s/streams/resources/g
-        setStreams(data.resources)
-        setTree(data.tree)
+        setStreams(data.resources_old)
+        setResources(data.resources)
       } else if (data.type === "output") {
         appendOutput.current(data.output)
       } else if (data.type === "finish") {
@@ -397,7 +400,7 @@ const App = () => {
   return (
     <>
       <Settings doRefresh={() => send({ cmd: "refresh" })} />
-      <ResourceTree tree={tree} />
+      <ResourcePane resources={resources} />
       {Object.entries(streams).map(([name, stream], index) => {
         return <Stream key={name}
                        name={name}

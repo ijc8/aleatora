@@ -196,51 +196,65 @@ div {
   border-style: dashed;
 }
 
-ul {
+ul.parameter-list {
   padding-left: 1em;
   margin: 0.5em;
   list-style: none;
 }
 
-.resource-tree {
+.resource-pane {
   margin-left: 3em;
   width: 250px;
   overflow: auto;
 }
 
-.resource-tree > input {
+.resource-pane > input {
   width: 100%;
-  border: 1px solid black;
+  border: 0;
+  border-bottom: 1px solid black;
   padding: 0.5em;
   margin: 0;
 }
 
-.resource-tree ul {
-  margin: 0;
-  padding: 0;
-}
-
-.tree-spacer {
+.module-toggle {
   display: inline-block;
-  width: 20px;
+  width: 24px;
   height: 24px;
+  text-align: center;
+  padding: 0;
 }
 
-.resource-tree ul {
+.module-name, .resource-name {
+  display: inline-block;
+  padding: 0.2em;
+}
+
+.resource-pane ul {
   margin: 0;
   padding: 0;
 }
 
-.resource-tree ul ul {
-  padding-left: 20px;
-}
-
-.resource-tree li {
+.resource-pane li {
   padding: 0;
+  white-space: nowrap;
 }
 
-ul.tree > li {
+.resource-pane {
   border: 1px solid black;
+}
+
+.module-header {
+  /* box-shadow: 0 3px 3px gray, 0 -3px 3px gray; */
+  /* border-left: 1px solid black;
+  border-right: 1px solid black; */
+}
+
+ul.resource-list {
+  box-shadow: inset 1px 2px 3px gray, inset -1px -2px 3px gray;
+}
+
+ul.resource-list > li {
+  border-bottom: 1px solid black;
 }
 
 .envelope-toolbar {

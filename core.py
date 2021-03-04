@@ -370,6 +370,10 @@ def namify(namer, inspector, init_stream):
         return closure
     return wrapper(init_stream)
 
+# Registry of stream-creating functions.
+# There is no registry for streams themselves, because they can be identified by type (`isinstance(x, Stream)`).
+stream_registry = {}
+
 # Decorator version
 # NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
 #       this adds overhead because namify wraps an existing Stream (much like Map).
@@ -380,6 +384,9 @@ def stream(f=None, namer=None, inspector=None):
         nonlocal namer, inspector
         namer = namer or make_namer(f)
         inspector = inspector or make_inspector(f)
+        if f.__module__ not in stream_registry:
+            stream_registry[f.__module__] = {}
+        stream_registry[f.__module__][f.__qualname__] = f
         def inner(*args, **kwargs):
             init_stream = f(*args, **kwargs)
             return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
