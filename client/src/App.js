@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import Editor from "@monaco-editor/react";
 import './App.css'
 
 // Data from Python process: map from variable name (String) => Stream info
@@ -236,6 +237,8 @@ const REPL = ({ setAppendOutput }) => {
     const input = textarea.current.value.slice(inputStart.current)
     textarea.current.value = history + response + input
     inputStart.current += response.length
+    // Scroll to the new prompt.
+    textarea.current.scrollTop = textarea.current.scrollHeight
   })
 
   const onKeyDown = (event) => {
@@ -295,11 +298,7 @@ const REPL = ({ setAppendOutput }) => {
     }
   }
 
-  return <div style={{position: 'absolute', right: 0, bottom: 0, padding: '1em'}}>
-    <textarea ref={textarea} spellCheck={false}
-              onKeyDown={onKeyDown} onKeyPress={onKeyPress} onPaste={onPasteOrCut} onCut={onPasteOrCut} onInput={onInput}
-              style={{width: '600px', height: '300px', border: '1px solid black', resize: 'none', fontSize: '20px'}} />
-  </div>
+  return <textarea ref={textarea} spellCheck={false} onKeyDown={onKeyDown} onKeyPress={onKeyPress} onPaste={onPasteOrCut} onCut={onPasteOrCut} onInput={onInput} />
 }
 
 const filterResources = (modules, filter) => {
@@ -347,10 +346,10 @@ const ResourcePane = ({ resources }) => {
 const VolumeControl = ({ setVolume }) => {
   const [volume, _setVolume] = useState(-6)
   return <>
-    <div style={{position: 'absolute', top: '40px', left: '10px', textAlign: 'center', width: '40px'}}>
-      <div>{volume}</div>
+    <div style={{textAlign: 'center', width: '100%'}}>
       <input style={{writingMode: 'vertical-lr'}} type="range" min="-72" max="12"
              onChange={(e) => { setVolume(e.target.value); _setVolume(e.target.value) }} value={volume}></input>
+      <div>{volume}</div>
     </div>
   </>
 }
@@ -395,21 +394,46 @@ const App = () => {
   }, [])
 
   return (
-    <>
-      <Settings doRefresh={() => send({ cmd: "refresh" })} />
-      <ResourcePane resources={resources} />
-      {Object.entries(streams).map(([name, stream], index) => {
-        return <Stream key={name}
-                       name={name}
-                       stream={stream}
-                       zIndex={zIndices[name]}
-                       moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                       offset={[index*70 + 30, 320]}
-                       finished={name === finished} />
-      })}
-      <REPL setAppendOutput={(f) => appendOutput.current = f} />
-      <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} />
-    </>
+    <div className="layout">
+      {/* Top bar */}
+      <div className="menu">
+        <button>
+          <Icon name="menu" />
+        </button>
+      </div>
+      <div className="search">
+        <input type="text" placeholder="Filter" />
+      </div>
+      <div className="title">my_cool_composition</div>
+
+      {/* Left sidebar */}
+      <div className="volume">
+        <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} />
+      </div>
+      
+      {/* Main content */}
+      <div className="resources"></div>
+      <div className="details"></div>
+      <div className="editor">
+        <Editor defaultLanguage="python" />
+      </div>
+      <div className="repl">
+        <REPL setAppendOutput={(f) => appendOutput.current = f} />
+      </div>
+    </div>
+    /* <Settings doRefresh={() => send({ cmd: "refresh" })} />
+    <ResourcePane resources={resources} />
+    {Object.entries(streams).map(([name, stream], index) => {
+      return <Stream key={name}
+                      name={name}
+                      stream={stream}
+                      zIndex={zIndices[name]}
+                      moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
+                      offset={[index*70 + 30, 320]}
+                      finished={name === finished} />
+    })}
+    <REPL setAppendOutput={(f) => appendOutput.current = f} />
+    <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} /> */
   )
 }
 

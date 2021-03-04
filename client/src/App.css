@@ -6,6 +6,111 @@ html {
   box-sizing: inherit;
 }
 
+.layout div {
+  box-sizing: border-box;
+  /* border: 1px solid black; */
+}
+
+body {
+  height: 100vh;
+}
+
+#root {
+  height: 100%;
+}
+
+.layout {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 40px 1fr 2fr 2fr;
+  grid-template-rows: 40px 1fr 1fr;
+  grid-gap: 1px;
+  background-color: black;
+}
+
+.layout > div {
+  background-color: white;
+}
+
+.menu {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.menu > button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.search > input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 1em;
+}
+
+.resources {
+  grid-row: 2 / 4;
+  grid-column: 2;
+}
+
+.title {
+  grid-row: 1;
+  grid-column: 3;
+  padding: 0.5em;
+  padding-left: 1em;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.volume {
+  grid-row: 2 / 4;
+  grid-column: 1;
+}
+
+.details {
+  grid-row: 2 / 4;
+  grid-column: 3;
+}
+
+.editor {
+  grid-row: 1 / 3;
+  grid-column: 4;
+}
+
+.editor > textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  resize: none;
+  font-size: 20px;
+  margin: 0;
+  padding: 0;
+}
+
+.repl {
+  grid-row: 3;
+  grid-column: 4;
+}
+
+.repl > textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  resize: none;
+  font-size: 20px;
+  margin: 0;
+  padding: 0;
+}
+
 .App {
   text-align: center;
 }
@@ -75,7 +180,7 @@ button:active i {
   position: absolute;
 }
 
-.spacer {
+.old-spacer {
   border-top: 1px solid black;
   border-right: 1px solid black;
   height: 100%;
@@ -155,10 +260,6 @@ h2 {
   margin: 0;
 }
 
-div {
-  border-width: 0px;
-}
-
 .node {
   border: 1px solid black;
   padding: 10px;
@@ -183,7 +284,7 @@ div {
   align-items: center;
 }
 
-.details {
+.old-details {
   display: none;
 }
 

@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@giantmachines/redux-websocket": "^1.4.0",
+    "@monaco-editor/react": "^4.0.11",
     "@reduxjs/toolkit": "^1.1.0",
     "@testing-library/jest-dom": "^4.2.4",
     "@testing-library/react": "^9.3.2",
