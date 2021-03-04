@@ -203,9 +203,12 @@ ul.parameter-list {
 }
 
 .resource-pane {
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
   margin-left: 3em;
   width: 250px;
-  overflow: auto;
+  border: 1px solid black;
 }
 
 .resource-pane > input {
@@ -239,8 +242,8 @@ ul.parameter-list {
   white-space: nowrap;
 }
 
-.resource-pane {
-  border: 1px solid black;
+.module-list {
+  overflow: auto;
 }
 
 .module-header {
@@ -250,7 +253,7 @@ ul.parameter-list {
 }
 
 ul.resource-list {
-  box-shadow: inset 1px 2px 3px gray, inset -1px -2px 3px gray;
+  box-shadow: inset 0px 2px 3px gray, inset 0px -2px 3px gray;
 }
 
 ul.resource-list > li {

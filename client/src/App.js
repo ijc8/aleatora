@@ -302,23 +302,20 @@ const REPL = ({ setAppendOutput }) => {
   </div>
 }
 
-const filterTree = (tree, filter) => {
+const filterResources = (modules, filter) => {
   const filtered = {}
-  Object.entries(tree).forEach(([name, value]) => {
-    if (typeof(value) === 'object') {
-      const subtree = filterTree(value, filter)
-      if (Object.keys(subtree).length) {
-        filtered[name] = subtree
-      }
-    } else if (name.includes(filter)) {
-      filtered[name] = value
+  Object.entries(modules).forEach(([name, resources]) => {
+    resources = Object.assign(...Object.entries(resources).filter(([name, value]) => name.includes(filter)).map(([name, value]) => ({ [name]: value })), {})
+    if (Object.keys(resources).length) {
+      filtered[name] = resources
     }
   })
   return filtered
 }
 
 const Resource = ({ name, value }) => {
-  return <li><span className="resource-name">{name} - {value}</span></li>
+  const icons = {stream: "water", instrument: "piano", function: "microwave"}
+  return <li><span className="resource-name"><Icon name={icons[value.type]} /> {name}</span></li>
 }
 
 const Module = ({ name, resources, expand, setExpand }) => (
@@ -337,7 +334,7 @@ const Module = ({ name, resources, expand, setExpand }) => (
 const ResourcePane = ({ resources }) => {
   const [filter, setFilter] = useState("")
   const [expand, setExpand] = useState({})
-  resources = filterTree(resources, filter)
+  resources = filterResources(resources, filter)
   return <div className="resource-pane">
     <input type="text" placeholder="Filter resources" value={filter} onChange={(e) => setFilter(e.target.value)} />
     <ul className="module-list">

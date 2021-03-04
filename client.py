@@ -11,6 +11,7 @@ from core import *
 import audio
 from speech import *
 from midi import *
+from manager import *
 
 
 # Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
@@ -160,7 +161,7 @@ encode = lambda s: hex(s)[2:]
 
 def serialize(resource):
     seen = set()
-    def dfs(resource):
+    def dfs(resource, inner=False):
         if resource in seen:
             return {'name': '@' + encode(id(resource))}
         seen.add(resource)
@@ -169,18 +170,23 @@ def serialize(resource):
             info = stream.inspect()
             info['type'] = 'stream'
             info['id'] = encode(id(stream))
-            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
+            info['parameters'] = {n: dfs(p, True) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
             if 'children' in info:
-                info['children']['streams'] = list(map(dfs, info['children']['streams']))
+                info['children']['streams'] = [dfs(child, True) for child in info['children']['streams']]
             if 'implementation' in info:
-                info['implementation'] = dfs(info['implementation'])
+                info['implementation'] = dfs(info['implementation'], True)
             return info
         elif isinstance(resource, Instrument):
             return {'type': 'instrument', 'name': resource.name}
         elif isinstance(resource, types.FunctionType):
-            # May be a quick wrapper lambda, or generally an 'un-Streamified' stream function.
-            # Since we got here from seeing it embedded in a stream, we'll go ahead and assume it's also a stream.
-            return {'type': 'stream', 'name': 'raw function'}
+            if inner:
+                # May be a quick wrapper lambda, or generally an 'un-Streamified' stream function.
+                # Since we got here from seeing it embedded in a stream, we'll go ahead and assume it's also a stream.
+                return {'type': 'stream', 'name': 'raw function'}
+            else:
+                # At the top level, we got this from the stream_registry, so this is a function that returns a stream.
+                # TODO: docstring, signature
+                return {'type': 'function', 'name': resource.__qualname__}
         else:
             # Probably an error, if this is embedded where a stream is expected...
             return {'type': 'unknown', 'name': f'mystery object: {type(resource)}'}
@@ -191,24 +197,29 @@ def get_resources():
     # Collect the resources within each module.
     modules_seen = set()
     variables_seen = set()
-    resources = {}
-    queue = [('__main__', sys.modules['__main__'])]
+    # NOTE: We traverse `core` first (so it gets to claim core streams like `silence`, despite other modules doing `from core import *`),
+    # but we put `__main__` in `resources` first so that it gets listed first.
+    resources = {'__main__': {}}
+    queue = [('__main__', sys.modules['__main__']), ('core', sys.modules['core'])]
     while queue:
-        name, module = queue.pop()
-        if name in core.stream_registry:
-            for var_name, value in core.stream_registry[name].items():
+        module_name, module = queue.pop()
+        if module_name in core.stream_registry:
+            for var_name, value in core.stream_registry[module_name].items():
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
-                resources[value.__module__][var_name] = "TODO fn"
+                resources[value.__module__][var_name] = serialize(value)
         for var_name, value in module.__dict__.items():
             if isinstance(value, Stream):
-                if value.__module__ not in resources:
-                    resources[value.__module__] = {}
-                resources[value.__module__][var_name] = "TODO stream"  # serialize(stream)
+                print(var_name, value)
+                if (var_name, value) not in variables_seen:
+                    variables_seen.add((var_name, value))
+                    if module_name not in resources:
+                        resources[module_name] = {}
+                    resources[module_name][var_name] = serialize(value)
             elif isinstance(value, Instrument):
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
-                resources[value.__module__][var_name] = "TODO instrument"
+                resources[value.__module__][var_name] = serialize(value)
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
@@ -224,124 +235,6 @@ def get_resources_old():
 class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
-
-def play(stream=None):
-    if stream:
-        manager.play(None, stream)
-    else:
-        manager.stop(None)
-
-class StreamManager:
-    def __init__(self, finish_callback):
-        self.finish_callback = finish_callback
-        # Map of stream name -> (stream, paused position)
-        self.streams = {}
-        # Map of stream name -> stream
-        self.playing_streams = {}
-        # For thread-safety, we only mutate self.playing_streams in one thread.
-        # Queue of (name, stream). `stream is None` indicates deletion.
-        self.to_change = queue.Queue()
-        self.history_length = SAMPLE_RATE * 1
-    
-    def __call__(self):
-        # First, process any queued changes:
-        while True:
-            try:
-                name, stream = self.to_change.get(block=False)
-            except queue.Empty:
-                break
-            if stream:
-                self.playing_streams[name] = stream
-            elif name in self.playing_streams:
-                del self.playing_streams[name]
-        acc = 0
-        # Not sure if it's better to put the next streams in a new dictionary, or re-use the old one.
-        # (Re-use requires keeping track of which entries should be deleted, and doing that afterwards.)
-        next_playing_streams = {}
-        for name, stream in self.playing_streams.items():
-            try:
-                result = stream()
-                if isinstance(result, Return):
-                    self.finish_callback(name, result.value)
-                    self.streams[name][1] = self.streams[name][0]
-                else:
-                    value, next_stream = result
-                    next_playing_streams[name] = next_stream
-                    history = self.streams[name][2]
-                    history_index = self.streams[name][3]
-                    history[history_index] = next_stream
-                    self.streams[name][3] = (history_index + 1) % self.history_length
-                    acc += value
-            except Exception as e:
-                traceback.print_exc()
-                self.finish_callback(name, e)
-                self.streams[name][1] = self.streams[name][0]
-        self.playing_streams = next_playing_streams
-        return (acc, self)
-    
-    def play(self, name, stream):
-        # TODO: rename stream -> resource
-        if isinstance(stream, Stream):
-            stream = stream
-        elif isinstance(stream, Instrument):
-            p = mido.open_input(mido.get_input_names()[1])
-            stream = stream(event_stream(p))
-        else:
-            raise ValueError(f"Expected Stream or Instrument, got {type(stream)}.")
-        if name in self.streams and self.streams[name][0] is stream:
-            self.to_change.put((name, self.streams[name][1]))
-        else:
-            assert(stream is not None)
-            self.streams[name] = [stream, stream, [stream] * self.history_length, 0]
-            self.to_change.put((name, stream))
-    
-    def pause(self, name):
-        if name not in self.playing_streams:
-            print(f'Warning: {name} is not playing, desync with client.', file=sys.stderr)
-            return
-        self.streams[name][1] = self.playing_streams[name]
-        self.to_change.put((name, None))
-    
-    def record(self, name, instrument):
-        # This plays the instrument with live MIDI data, like play(),
-        # but it also puts a layer in the middle that captures that MIDI data, for later playback.
-        # Right now this creates a stream that plays back the MIDI data with the same instrument,
-        # but this should create an object that is visible and editable (as a piano roll),
-        # and replayable (using this or any other instrument).
-
-        p = mido.open_input(mido.get_input_names()[1])
-        self.list_of_events = []
-        timer = 0
-        def callback(event):
-            nonlocal timer
-            if event is not None:
-                self.list_of_events.append((timer, event))
-            timer += 1
-            return event
-        def finish():
-            print(self.list_of_events)
-            global recorded_stream
-            recorded_stream = instrument(events_in_time(self.list_of_events))
-            return (0, empty)
-        # TODO: for now, this just records the next 5 seconds, but it should record until stopped.
-        self.play(name, instrument(event_stream(p)[:5.0].map(callback)) >> finish)
-        # Note that we could make an /audio-level/ recording instead by memoizing
-        # Instead of actually using memoize(), would use callback() to append to an internal list_of_samples.
-        # Create a ListStream afterwards.
-    
-    def stop(self, name):
-        if name in self.streams:
-            self.streams[name][1] = self.streams[name][0]
-            self.to_change.put((name, None))
-    
-    def rewind(self, name):
-        if name in self.playing_streams:
-            self.to_change.put((name, self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]))
-        elif name in self.streams:
-            self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
-
-
-
 
 async def serve(websocket, path):
     finished_event = EventThreadSafe()

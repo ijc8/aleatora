@@ -39,6 +39,87 @@ class StreamIterator:
         return value
 
 
+# Preliminary magic for introspection.
+# This stuff is used by the assistant to list all streams, stream-creating functions, and instruments.
+
+# Registry of stream-creating functions.
+# There is no registry for streams themselves, because they can be identified by type (`isinstance(x, Stream)`).
+stream_registry = {}
+
+def make_namer(fn):
+    def closure(*args, **kwargs):
+        args = inspect.signature(fn).bind(*args, **kwargs).arguments
+        return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
+    return closure
+
+def make_inspector(fn):
+    def closure(*args, **kwargs):
+        ba = inspect.signature(fn).bind(*args, **kwargs)
+        ba.apply_defaults()
+        return {
+            "name": fn.__name__,
+            "parameters": ba.arguments,
+        }
+    return closure
+
+def register_stream(f):
+    if f.__module__ not in stream_registry:
+        stream_registry[f.__module__] = {}
+    stream_registry[f.__module__][f.__qualname__] = f
+    return f
+
+# This wraps primitive streams (functions) and gives them namers/inspectors.
+# Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
+# Assumes the decorated function is lazily recursive.
+def raw_stream(f=None, namer=None, inspector=None):
+    def wrapper(f):
+        nonlocal namer, inspector
+        namer = namer or make_namer(f)
+        inspector = inspector or make_inspector(f)
+        register_stream(f)
+        return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
+    if f:
+        return wrapper(f)
+    return wrapper
+
+# This is for naming complex streams, which do not refer to themselves.
+def namify(namer, inspector, init_stream):
+    def _inspector(stream):
+        d = inspector()
+        d['implementation'] = stream
+        return d
+    @raw_stream(namer=namer, inspector=_inspector)
+    def wrapper(stream):
+        def closure():
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            return (value, wrapper(next_stream))
+        return closure
+    return wrapper(init_stream)
+
+# Decorator version
+# NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
+#       this adds overhead because namify wraps an existing Stream (much like Map).
+# TODO: Avoid overhead by overwriting NamedStream.namer/inspector
+# Can potentially store the old values on NamedStream anyway, to allow peeking at implementation
+def stream(f=None, namer=None, inspector=None):
+    def wrapper(f):
+        nonlocal namer, inspector
+        namer = namer or make_namer(f)
+        inspector = inspector or make_inspector(f)
+        register_stream(f)
+        def inner(*args, **kwargs):
+            init_stream = f(*args, **kwargs)
+            return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
+        return inner
+    if f:
+        return wrapper(f)
+    return wrapper
+
+
+
 # Helper function to reduce boilerplate in the class definition below.
 def make_stream_op(op, reversed=False):
     if reversed:
@@ -51,6 +132,7 @@ def make_stream_op(op, reversed=False):
             return ZipStream([self, other]).map(lambda p: op(*p))
         return self.map(lambda v: op(v, other))
     return fn
+
 
 # The Stream class.
 # This defines the Stream interface, serves as the parent for special kinds of streams,
@@ -117,6 +199,7 @@ class Stream:
         elif isinstance(index, slice):
             return SliceStream(self, index.start, index.stop, index.step)
 
+    @register_stream
     def map(self, fn):
        return MapStream(self, fn)
 
@@ -323,77 +406,6 @@ class NamedStream(Stream):
             return self.inspector(*self.args, **self.kwargs)
         else:
             return {"name": str(self), "parameters": {}}
-
-def make_namer(fn):
-    def closure(*args, **kwargs):
-        args = inspect.signature(fn).bind(*args, **kwargs).arguments
-        return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
-    return closure
-
-def make_inspector(fn):
-    def closure(*args, **kwargs):
-        ba = inspect.signature(fn).bind(*args, **kwargs)
-        ba.apply_defaults()
-        return {
-            "name": fn.__name__,
-            "parameters": ba.arguments,
-        }
-    return closure
-
-# This wraps primitive streams (functions) and gives them namers/inspectors.
-# Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
-# Assumes the decorated function is lazily recursive.
-def raw_stream(f=None, namer=None, inspector=None):
-    def wrapper(f):
-        nonlocal namer, inspector
-        namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f)
-        return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
-    if f:
-        return wrapper(f)
-    return wrapper
-
-# This is for naming complex streams, which do not refer to themselves.
-def namify(namer, inspector, init_stream):
-    def _inspector(stream):
-        d = inspector()
-        d['implementation'] = stream
-        return d
-    @raw_stream(namer=namer, inspector=_inspector)
-    def wrapper(stream):
-        def closure():
-            result = stream()
-            if isinstance(result, Return):
-                return result
-            value, next_stream = result
-            return (value, wrapper(next_stream))
-        return closure
-    return wrapper(init_stream)
-
-# Registry of stream-creating functions.
-# There is no registry for streams themselves, because they can be identified by type (`isinstance(x, Stream)`).
-stream_registry = {}
-
-# Decorator version
-# NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
-#       this adds overhead because namify wraps an existing Stream (much like Map).
-# TODO: Avoid overhead by overwriting NamedStream.namer/inspector
-# Can potentially store the old values on NamedStream anyway, to allow peeking at implementation
-def stream(f=None, namer=None, inspector=None):
-    def wrapper(f):
-        nonlocal namer, inspector
-        namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f)
-        if f.__module__ not in stream_registry:
-            stream_registry[f.__module__] = {}
-        stream_registry[f.__module__][f.__qualname__] = f
-        def inner(*args, **kwargs):
-            init_stream = f(*args, **kwargs)
-            return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
-        return inner
-    if f:
-        return wrapper(f)
-    return wrapper
 
 
 @stream
