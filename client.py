@@ -207,7 +207,7 @@ def get_resources():
             for var_name, value in core.stream_registry[module_name].items():
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
-                resources[value.__module__][var_name] = serialize(value)
+                resources[value.__module__][var_name] = value
         for var_name, value in module.__dict__.items():
             if isinstance(value, Stream):
                 print(var_name, value)
@@ -215,21 +215,17 @@ def get_resources():
                     variables_seen.add((var_name, value))
                     if module_name not in resources:
                         resources[module_name] = {}
-                    resources[module_name][var_name] = serialize(value)
+                    resources[module_name][var_name] = value
             elif isinstance(value, Instrument):
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
-                resources[value.__module__][var_name] = serialize(value)
+                resources[value.__module__][var_name] = value
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
                 modules_seen.add(value)
                 queue.append((var_name, value))
     return resources
-
-
-def get_resources_old():
-    return {name: value for name, value in globals().items() if isinstance(value, Stream) or isinstance(value, Instrument)}
 
 # https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
 class EventThreadSafe(asyncio.Event):
@@ -259,8 +255,13 @@ async def serve(websocket, path):
     while True:
         # Send list of streams.
         # TODO: only refresh if streams changed
-        resources = get_resources_old()
-        dump = {"type": "resources", "resources_old": {name: serialize(resource) for name, resource in resources.items()}, "resources": get_resources()}
+        resources = get_resources()
+        def get_resource(name):
+            module, name = name.split(".", 1)
+            return resources[module][name]
+
+        serialized_resources = {module: {variable: serialize(value) for variable, value in module_contents.items()} for module, module_contents in resources.items()}
+        dump = {"type": "resources", "resources": serialized_resources}
         blob = json.dumps(dump, cls=MyEncoder)
         await websocket.send(blob)
         while True:
@@ -272,19 +273,19 @@ async def serve(websocket, path):
             elif cmd == 'play': 
                 name = data['name']
                 playing_stream = name
-                manager.play(name, resources[name])
+                manager.play(name, get_resource(name))
             elif cmd == 'pause':
                 manager.pause(data['name'])
             elif cmd == 'record':
                 name = data['name']
-                manager.record(name, resources[name])
+                manager.record(name, get_resource(name))
             elif cmd == 'stop':
                 manager.stop(data['name'])
             elif cmd == 'rewind':
                 manager.rewind(data['name'])
             elif cmd == 'save':
                 resource = type_map[data['type']](data['payload'])
-                resource_name = resource_map.get(resources.get(data['name'], None), data['name'])
+                resource_name = resource_map.get(get_resource(name), data['name'])
                 globals()[data['name']] = resource
                 save(resource, resource_name)
                 break

@@ -51,13 +51,22 @@ const Details = ({ id, name, parameters, children, implementation }) => {
     </div>)
 }
 
-const InspectorTab = ({ name, stream }) => <Details {...stream} />
+const InspectorTab = ({ name, resource }) => <Details {...resource} />
 
 InspectorTab.icon = "zoom_in"
 
-const EnvelopeTab = ({ name, stream }) => {
+const HelpTab = ({ name, resource }) => {
+  return <ul>
+    <li>Type: {resource.type}</li>
+    <li>Docstring: TODO</li>
+  </ul>
+}
+
+HelpTab.icon = "help_outline"
+
+const EnvelopeTab = ({ name, resource }) => {
   const env = useRef(null)
-  const points = stream.parameters.points
+  const points = resource.parameters.points
   useEffect(() => {
     if (!env.current) {
       env.current = new Nexus.Envelope('#envelope', {
@@ -77,7 +86,7 @@ const EnvelopeTab = ({ name, stream }) => {
 
 EnvelopeTab.icon = "insights"
 
-const SequenceTab = ({ name, stream }) => {
+const SequenceTab = ({ name, resource }) => {
   const roll = useRef(null)
   const onKeyPress = (event) => {
     if (event.charCode === KEY_ENTER) {
@@ -87,7 +96,7 @@ const SequenceTab = ({ name, stream }) => {
   }
 
   useEffect(() => {
-    roll.current.sequence = stream.parameters.notes.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
+    roll.current.sequence = resource.parameters.notes.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
     roll.current.redraw()
   })
 
@@ -96,14 +105,14 @@ const SequenceTab = ({ name, stream }) => {
 
 SequenceTab.icon = "piano"
 
-const SpeechTab = ({ name, stream }) => {
+const SpeechTab = ({ name, resource }) => {
   const textbox = useRef()
   const onKeyPress = (event) => {
     if (event.charCode === KEY_ENTER && event.ctrlKey) {
       send({ cmd: "save", type: "speech", name, payload: textbox.current.value })
     }
   }
-  return <textarea ref={textbox} className="speech" type="text" defaultValue={stream.parameters.text} onKeyPress={onKeyPress} />
+  return <textarea ref={textbox} className="speech" type="text" defaultValue={resource.parameters.text} onKeyPress={onKeyPress} />
 }
 
 SpeechTab.icon = "chat"
@@ -115,10 +124,8 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
+const Stream = ({ name, stream, finished }) => {
   // TODO: Separate widget for Instruments.
-  const movable = useRef(null)
-  const [moving, setMoving] = useState(false)
   const [expanded, setExpanded] = useState(-1)
   const [playing, setPlaying] = useState(false)
 
@@ -126,85 +133,50 @@ const Stream = ({ name, stream, zIndex, moveToTop, offset, finished }) => {
     setPlaying(false)
   }
 
-  // Implement dragging.
-  const onMouseDown = (e) => {
-    let moved = false
-    // Commented out so buttons in the title bar still press down on drag.
-    // May eventually want to make them inactive again after movement (e.g. how GNOME's WM does it).
-    // e.preventDefault()
-    let lastPos = [e.clientX, e.clientY]
-    document.onmouseup = () => {
-      document.onmouseup = document.onmousemove = null
-      if (moved) {
-        // Don't register the drag as a click.
-        const captureClick = (e) => {
-          e.stopPropagation()
-          window.removeEventListener('click', captureClick, true)
-        }
-        window.addEventListener('click', captureClick, true)
-      }
-      setMoving(false)
-    }
-
-    document.onmousemove = (e) => {
-      const pos = [e.clientX, e.clientY]
-      const delta = [pos[0] - lastPos[0], pos[1] - lastPos[1]]
-      if (!moved && (Math.abs(delta[0]) > 3 || Math.abs(delta[1]) > 3)) {
-        setMoving(true)
-        moved = true
-      }
-      
-      if (moved) {
-        movable.current.style.left = (movable.current.offsetLeft + delta[0]) + "px"
-        movable.current.style.top = (movable.current.offsetTop + delta[1]) + "px"
-        lastPos = pos
-      }
-    }
-  }
-
   let tabs = [InspectorTab]
+  console.log(stream)
   if (tabMap[stream.name] !== undefined) {
     tabs.push(tabMap[stream.name])
   }
+  tabs.push(HelpTab)
 
   return (
-    <div ref={movable} onMouseDown={moveToTop} className={"movable stream" + (moving ? " moving" : "")} style={{top: offset[0] + 'px', left: offset[1] + 'px', zIndex}}>
-      <div className={"stream-header " + (expanded ? "expanded" : "")} onMouseDown={onMouseDown}>
-        <button className="control" onClick={() => {
+    <div className="resource-details">
+      <div className="resource-controls">
+        <button className="resource-control" style={{borderLeft: 'none'}} onClick={() => {
           send({ cmd: "rewind", name })
         }}>
           <Icon name="history" />
         </button>
-        <button className="control" style={{borderLeft: 'none'}} onClick={() => {
+        <button className="resource-control" onClick={() => {
           send({ cmd: playing ? "pause" : "play", name })
           setPlaying(!playing)
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
         </button>
         {stream.type === 'instrument' &&
-        <button className="control" style={{borderLeft: 'none'}} onClick={() => send({ cmd: "record", name })}>
+        <button className="resource-control" onClick={() => send({ cmd: "record", name })}>
           <Icon name="fiber_manual_record" style={{color: "red", fontSize: "18px", paddingLeft: "2px", paddingBottom: "1px"}} />
         </button>}
-        <button className="control" style={{borderLeft: 'none'}} onClick={() => {
+        <button className="resource-control" style={{borderRight: '1px solid black'}} onClick={() => {
           send({ cmd: "stop", name })
           setPlaying(false)
         }}>
           <Icon name="stop" />
         </button>
-        <span className="stream-name">{name}</span>
+        <div className="flex-spacer">Maybe seek controls go here?</div>
         {tabs.map((tab, i) =>
           <button key={i}
-                  className={"tab control " + (expanded === i ? 'punched' : '')}
-                  onClick={() => setExpanded(expanded === i ? -1 : i)}
+                  className={"resource-control " + (expanded === i ? 'punched' : '')}
+                  onClick={() => setExpanded(i)}
                   style={i === tabs.length - 1 ? {} : {borderRight: 'none'}}>
             <Icon name={tab.icon} />
           </button>
         )}
-        <div className="spacer"></div>
       </div>
       {expanded >= 0 && (() => {
         const Tab = tabs[expanded]
-        return <div className="stream-details"><Tab name={name} stream={stream} /></div>
+        return <div className="resource-content"><Tab name={name} resource={stream} /></div>
       })()}
     </div>
   )
@@ -312,12 +284,12 @@ const filterResources = (modules, filter) => {
   return filtered
 }
 
-const Resource = ({ name, value }) => {
+const Resource = ({ name, value, focus, setFocus }) => {
   const icons = {stream: "water", instrument: "piano", function: "microwave"}
-  return <li><span className="resource-name"><Icon name={icons[value.type]} /> {name}</span></li>
+  return <li onClick={setFocus} className={focus ? "focused" : ""}><span className="resource-name"><Icon name={icons[value.type]} /> {name}</span></li>
 }
 
-const Module = ({ name, resources, expand, setExpand }) => (
+const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
   <li>
     <div className="module-header">
       <button className="module-toggle" onClick={() => setExpand(!expand)}><Icon name={`expand_${expand ? 'less' : 'more'}`} /></button>
@@ -325,22 +297,29 @@ const Module = ({ name, resources, expand, setExpand }) => (
     </div>
     {expand &&
     <ul className="resource-list">
-      {Object.entries(resources).map(([name, value]) => <Resource key={name} name={name} value={value} />)}
+      {Object.entries(resources).map(([resourceName, value]) => {
+        const fullName = `${name}.${resourceName}`
+        return <Resource key={resourceName} name={resourceName} value={value} focus={focus === fullName} setFocus={() => setFocus(fullName)} />
+      })}
     </ul>}
   </li>
 )
 
-const ResourcePane = ({ resources }) => {
+const ResourcePane = ({ resources, focus, setFocus }) => {
   const [filter, setFilter] = useState("")
   const [expand, setExpand] = useState({})
   resources = filterResources(resources, filter)
-  return <div className="resource-pane">
-    <input type="text" placeholder="Filter resources" value={filter} onChange={(e) => setFilter(e.target.value)} />
-    <ul className="module-list">
-      {Object.entries(resources).map(([name, value]) =>
-        <Module key={name} name={name} resources={value} expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })} />)}
-    </ul>
-  </div>
+  return <>
+    <div className="search">
+      <input type="text" placeholder="Filter resources" value={filter} onChange={(e) => setFilter(e.target.value)} />
+    </div>
+    <div className="resources">
+      <ul className="module-list">
+        {Object.entries(resources).map(([name, value]) =>
+          <Module key={name} name={name} resources={value} expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })} focus={focus} setFocus={setFocus} />)}
+      </ul>
+    </div>
+  </>
 }
 
 const VolumeControl = ({ setVolume }) => {
@@ -375,6 +354,15 @@ const App = () => {
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
   const [finished, setFinished] = useState(null)
+  const [focus, setFocus] = useState(null)
+
+  let focusModule = null, focusName = null, focusResource = null
+  if (focus !== null) {
+    const [first, ...rest] = focus.split(".")
+    focusModule = first
+    focusName = rest.join(".")
+    focusResource = resources[focusModule][focusName]
+  }
 
   useEffect(() => {
     socket = new WebSocket("ws://localhost:8765")
@@ -383,6 +371,7 @@ const App = () => {
       if (data.type === "resources") {
         // TODO: s/streams/resources/g
         setStreams(data.resources_old)
+        console.log(data.resources)
         setResources(data.resources)
       } else if (data.type === "output") {
         appendOutput.current(data.output)
@@ -401,10 +390,14 @@ const App = () => {
           <Icon name="menu" />
         </button>
       </div>
-      <div className="search">
-        <input type="text" placeholder="Filter" />
+      <div className="title">
+        {focus !== null &&
+        <>
+          {focusModule !== "__main__" && <span className="title-module">{focusModule}.</span>}
+          <span>{focusName}</span>
+        </>}
       </div>
-      <div className="title">my_cool_composition</div>
+      <div className="toolbar"></div>
 
       {/* Left sidebar */}
       <div className="volume">
@@ -412,8 +405,12 @@ const App = () => {
       </div>
       
       {/* Main content */}
-      <div className="resources"></div>
-      <div className="details"></div>
+      <ResourcePane resources={resources} focus={focus} setFocus={setFocus} />
+      <div className="details">
+        {/* TODO: Tiny controls in resource pane */}
+        {focus !== null &&
+        <Stream name={focus} stream={focusResource} finished={focus === finished} />}
+      </div>
       <div className="editor">
         <Editor defaultLanguage="python" />
       </div>
@@ -421,19 +418,7 @@ const App = () => {
         <REPL setAppendOutput={(f) => appendOutput.current = f} />
       </div>
     </div>
-    /* <Settings doRefresh={() => send({ cmd: "refresh" })} />
-    <ResourcePane resources={resources} />
-    {Object.entries(streams).map(([name, stream], index) => {
-      return <Stream key={name}
-                      name={name}
-                      stream={stream}
-                      zIndex={zIndices[name]}
-                      moveToTop={() => setZIndices({...zIndices, [name]: Math.max(0, ...Object.values(zIndices)) + 1})}
-                      offset={[index*70 + 30, 320]}
-                      finished={name === finished} />
-    })}
-    <REPL setAppendOutput={(f) => appendOutput.current = f} />
-    <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} /> */
+    /* <Settings doRefresh={() => send({ cmd: "refresh" })} /> */
   )
 }
 
