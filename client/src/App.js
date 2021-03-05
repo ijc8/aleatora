@@ -193,7 +193,7 @@ const KEY_UP = 38
 const KEY_DOWN = 40
 const KEY_DELETE = 46
 
-const REPL = ({ setAppendOutput }) => {
+const REPL = ({ setAppendOutput, setRunCode }) => {
   const textarea = useRef()
   let inputStart = useRef()
 
@@ -211,6 +211,18 @@ const REPL = ({ setAppendOutput }) => {
     inputStart.current += response.length
     // Scroll to the new prompt.
     textarea.current.scrollTop = textarea.current.scrollHeight
+  })
+
+  setRunCode((code) => {
+    console.log("new input", code)
+    const history = textarea.current.value.slice(0, inputStart.current)
+    const input = textarea.current.value.slice(inputStart.current)
+    textarea.current.value = history + code + "\n" + input
+    inputStart.current += code.length + 1
+    // Scroll to the new prompt.
+    textarea.current.scrollTop = textarea.current.scrollHeight
+    console.log("Submitting editor code:", code)
+    send({ cmd: "exec", code })
   })
 
   const onKeyDown = (event) => {
@@ -253,7 +265,7 @@ const REPL = ({ setAppendOutput }) => {
     if (event.charCode === KEY_ENTER) {
       textarea.current.selectionStart = textarea.current.selectionEnd = textarea.current.value.length
       const code = textarea.current.value.slice(inputStart.current)
-      console.log("Submitting user code:", code)
+      console.log("Submitting REPL code:", code)
       send({ cmd: "exec", code })
       inputStart.current = textarea.current.value.length + 1
       console.log("sent successfully")
@@ -343,6 +355,26 @@ const Settings = ({ doRefresh }) => {
   </div>
 }
 
+const CodeEditor = ({ runCode }) => {
+  const editor = useRef()
+  const onMount = (ed => editor.current = ed)
+
+  const onKeyDown = (ev) => {
+    if (ev.keyCode == KEY_ENTER && ev.shiftKey) {
+      const selection = editor.current.getSelection()
+      let content = editor.current.getModel().getValueInRange(selection)
+      if (content === "") {
+        content = editor.current.getModel().getLineContent(selection.positionLineNumber)
+      }
+      runCode(content)
+      ev.preventDefault()
+    }
+  }
+  return <div onKeyDown={onKeyDown} style={{height: '100%'}}>
+    <Editor defaultLanguage="python" onMount={onMount} onChange={() => console.log(editor.current)} />
+  </div>
+}
+
 let socket
 const Nexus = window.Nexus
 const send = (obj) => socket.send(JSON.stringify(obj))
@@ -353,6 +385,7 @@ const App = () => {
   // Used to determine stacking order in floating layout
   const [zIndices, setZIndices] = useState({})
   const appendOutput = useRef()
+  const runCode = useRef()
   const [finished, setFinished] = useState(null)
   const [focus, setFocus] = useState(null)
 
@@ -412,10 +445,10 @@ const App = () => {
         <Stream name={focus} stream={focusResource} finished={focus === finished} />}
       </div>
       <div className="editor">
-        <Editor defaultLanguage="python" />
+        <CodeEditor runCode={runCode.current} />
       </div>
       <div className="repl">
-        <REPL setAppendOutput={(f) => appendOutput.current = f} />
+        <REPL setAppendOutput={(f) => appendOutput.current = f} setRunCode={(f) => runCode.current = f} />
       </div>
     </div>
     /* <Settings doRefresh={() => send({ cmd: "refresh" })} /> */
