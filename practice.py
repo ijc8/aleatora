@@ -1320,3 +1320,321 @@ def variant(y):
 play(decay_cycle(list((randbits*2 + -1)[:SAMPLE_RATE // 110])))
 play(variant(list((randbits*2 + -1)[:SAMPLE_RATE // 110])))
 
+
+# 3/5/2021
+
+# Wavetables
+from core import *
+import numpy as np
+play(osc(440))
+def osc_by_table(freq, resolution=1024):
+    sine_table = np.sin(np.linspace(0, 2*np.pi, resolution, endpoint=False))
+    base_freq = SAMPLE_RATE / resolution
+    return resample(cycle(to_stream(sine_table)), const(freq / base_freq))
+play(osc_by_table(440))
+# play(resample(cycle(to_stream(sine_table)), const(10)))
+play(osc(40))
+import graph
+play(osc_by_table(440, resolution=2**12))
+graph.plot(np.log10(np.abs(np.fft.rfft(list(osc(440)[:1.0])))))
+graph.plot(np.log10(np.abs(np.fft.rfft(list(osc_by_table(440, resolution=2**16)[:1.0])))))
+graph.plot((osc(440) + -osc_by_table(440, resolution=2**8))[:1.0])
+# Curious: the mean error actually starts going up as resolution increases past 2**7
+np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution=2**7))[:1.0])))
+np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution=2**8))[:1.0])))
+# Maybe because 44100/440 is close to 128?
+# Indeed. The error trough appears to be at resolution=100, the closest integer to 44100/440.
+np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution=99))[:1.0])))
+np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution=100))[:1.0])))
+np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution=101))[:1.0])))
+
+@raw_stream
+def resample_const(stream, rate, pos=0, sample=None, next_sample=0):
+    def closure():
+        nonlocal stream, pos, sample, next_sample
+        pos += rate
+        while pos >= 0:
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            sample = next_sample
+            next_sample, stream = result
+            pos -= 1
+        interpolated = (next_sample - sample) * (pos + 1) + sample
+        return (interpolated, resample_const(stream, rate, pos, sample, next_sample))
+    return closure
+
+# Now, profiling.
+# Normal osc vs raw stream osc vs resample vs resample_const.
+
+@raw_stream
+def raw_osc(freq, phase=0):
+    def closure():
+        return (math.sin(phase), raw_osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
+    return closure
+
+sine_table = np.sin(np.linspace(0, 2*np.pi, 128, endpoint=False)).tolist()
+from prof import profile
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)))[:10.0])
+profile.dump()
+
+np.mean(np.abs(list((osc(440) + -resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+
+# Results (one second):
+# osc: 44100 calls (0 endings)
+#      0.387us avg | 0.017s total | 1.70% of budget
+# raw_osc: 44100 calls (0 endings)
+#          0.388us avg | 0.017s total | 1.71% of budget
+# resample: 44100 calls (0 endings)
+#           1.085us avg | 0.048s total | 4.79% of budget
+# resample_const: 44100 calls (0 endings)
+#                 1.101us avg | 0.049s total | 4.86% of budget
+
+# 10 seconds:
+# osc: 441000 calls (0 endings)
+#      0.122us avg | 0.054s total | 0.54% of budget
+# raw_osc: 441000 calls (0 endings)
+#          0.121us avg | 0.053s total | 0.53% of budget
+# resample: 441000 calls (0 endings)
+#           0.377us avg | 0.166s total | 1.66% of budget
+# resample_const: 441000 calls (0 endings)
+#                 0.318us avg | 0.140s total | 1.40% of budget
+
+# Hm.
+# What about a zero-order hold?
+@raw_stream
+def zoh(stream, rate, pos=0, sample=None):
+    def closure():
+        nonlocal stream, pos, sample
+        pos += rate
+        while pos >= 0:
+            result = stream()
+            if isinstance(result, Return):
+                return result
+            sample, stream = result
+            pos -= 1
+        return (sample, zoh(stream, rate, pos, sample))
+    return closure
+
+np.mean(np.abs(list((osc(440) + -zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)))[:10.0])
+profile.dump()
+
+# Hm. Only marginally lower. What if it took a list, instead?
+class CycleListStream(Stream):
+    def __init__(self, list, index=0):
+        self.list = list
+        self.index = index % len(list)
+    
+    def __call__(self):
+        return (self.list[self.index], CycleListStream(self.list, self.index + 1))
+
+np.mean(np.abs(list((osc(440) + -zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+
+# This vs. cycle?
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("resample cyclelist", resample(CycleListStream(sine_table), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const cyclelist", resample_const(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh cyclelist", zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)))[:10.0])
+profile.dump()
+
+# Hm, that actually makes a significant difference.
+# Well, cycle() does add concat overhead, and these are running their internal streams faster than 1.
+# Let's try another thing:
+
+class ZohWavetable(Stream):
+    def __init__(self, list, rate, index=0):
+        self.list = list
+        self.rate = rate
+        self.index = index % len(list)
+    
+    def __call__(self):
+        return (self.list[int(self.index)], ZohWavetable(self.list, self.rate, self.index + self.rate))
+
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("resample cyclelist", resample(CycleListStream(sine_table), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const cyclelist", resample_const(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh cyclelist", zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("ZohWavetable", ZohWavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)))[:10.0])
+profile.dump()
+
+# Now we're talking. Results:
+# osc: 441000 calls (0 endings)
+#      0.135us avg | 0.060s total | 0.60% of budget
+# raw_osc: 441000 calls (0 endings)
+#          0.129us avg | 0.057s total | 0.57% of budget
+# resample: 441000 calls (0 endings)
+#           0.406us avg | 0.179s total | 1.79% of budget
+# resample_const: 441000 calls (0 endings)
+#                 0.342us avg | 0.151s total | 1.51% of budget
+# zoh: 441000 calls (0 endings)
+#      0.347us avg | 0.153s total | 1.53% of budget
+# resample cyclelist: 441000 calls (0 endings)
+#                     0.255us avg | 0.113s total | 1.13% of budget
+# resample_const cyclelist: 441000 calls (0 endings)
+#                           0.211us avg | 0.093s total | 0.93% of budget
+# zoh cyclelist: 441000 calls (0 endings)
+#                0.229us avg | 0.101s total | 1.01% of budget
+# ZohWavetable: 441000 calls (0 endings)
+#               0.091us avg | 0.040s total | 0.40% of budget
+
+# It is faster than osc.
+np.mean(np.abs(list((osc(440) + -zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+np.mean(np.abs(list((osc(440) + -ZohWavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+# The fact that it apparently has less error than zoh is concerning, but probably indicates a bug in zoh.
+
+# Now let's bring back interpolation.
+class Wavetable(Stream):
+    def __init__(self, list, rate, index=0):
+        self.list = list
+        self.rate = rate
+        self.index = index % len(list)
+    
+    def __call__(self):
+        index = int(self.index)
+        frac = self.index - index
+        start = self.list[index]
+        end = self.list[(index + 1) % len(self.list)]
+        interp = start + (end - start) * frac
+        return (interp, Wavetable(self.list, self.rate, self.index + self.rate))
+
+np.mean(np.abs(list((osc(440) + -Wavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE))[:1.0])))
+# Again, curiously less error than resample. Should really check that for correctness...
+
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("resample cyclelist", resample(CycleListStream(sine_table), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const cyclelist", resample_const(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh cyclelist", zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("ZohWavetable", ZohWavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("Wavetable", Wavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)))[:10.0])
+profile.dump()
+# Yes, this is still faster than raw_osc.
+# For fairness:
+class Osc(Stream):
+    def __init__(self, freq, phase=0):
+        self.freq = freq
+        self.phase = phase
+    
+    def __call__(self):
+        return (math.sin(self.phase), Osc(self.freq, self.phase + 2*math.pi*self.freq/SAMPLE_RATE))
+
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("resample cyclelist", resample(CycleListStream(sine_table), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const cyclelist", resample_const(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh cyclelist", zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("ZohWavetable", ZohWavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("Wavetable", Wavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("Osc", Osc(440)))[:10.0])
+profile.dump()
+
+np.mean(np.abs(list((osc(440) + -Osc(440))[:1.0])))
+
+# Real-time budget: 22.676us per sample
+# osc: 441000 calls (0 endings)
+#      0.138us avg | 0.061s total | 0.61% of budget
+# raw_osc: 441000 calls (0 endings)
+#          0.136us avg | 0.060s total | 0.60% of budget
+# resample: 441000 calls (0 endings)
+#           0.424us avg | 0.187s total | 1.87% of budget
+# resample_const: 441000 calls (0 endings)
+#                 0.336us avg | 0.148s total | 1.48% of budget
+# zoh: 441000 calls (0 endings)
+#      0.353us avg | 0.155s total | 1.55% of budget
+# resample cyclelist: 441000 calls (0 endings)
+#                     0.300us avg | 0.132s total | 1.32% of budget
+# resample_const cyclelist: 441000 calls (0 endings)
+#                           0.223us avg | 0.098s total | 0.98% of budget
+# zoh cyclelist: 441000 calls (0 endings)
+#                0.205us avg | 0.090s total | 0.90% of budget
+# ZohWavetable: 441000 calls (0 endings)
+#               0.096us avg | 0.042s total | 0.42% of budget
+# Wavetable: 441000 calls (0 endings)
+#            0.096us avg | 0.043s total | 0.43% of budget
+# Osc: 441000 calls (0 endings)
+#      0.085us avg | 0.037s total | 0.37% of budget
+
+# Well.
+# I guess that clears one thing up.
+# It's not that Wavetable is faster. It's that the function-streams are slower.
+# One more experiment. (Is "raw-er" a word?)
+def rawer_osc(freq, phase=0):
+    def closure():
+        return (math.sin(phase), rawer_osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
+    return closure
+
+profile.reset()
+_ = list((profile("osc", osc(440)) +
+          profile("raw_osc", osc(440)) +
+          profile("resample", resample(cycle(to_stream(sine_table)), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const", resample_const(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh", zoh(cycle(to_stream(sine_table)), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("resample cyclelist", resample(CycleListStream(sine_table), const(440 * len(sine_table) / SAMPLE_RATE))) +
+          profile("resample_const cyclelist", resample_const(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("zoh cyclelist", zoh(CycleListStream(sine_table), 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("ZohWavetable", ZohWavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("Wavetable", Wavetable(sine_table, 440 * len(sine_table) / SAMPLE_RATE)) +
+          profile("Osc", Osc(440)) +
+          profile("rawer_osc", rawer_osc(440)))[:10.0])
+profile.dump()
+
+
+# Real-time budget: 22.676us per sample
+# osc: 441000 calls (0 endings)
+#      0.146us avg | 0.064s total | 0.64% of budget
+# raw_osc: 441000 calls (0 endings)
+#          0.128us avg | 0.057s total | 0.57% of budget
+# resample: 441000 calls (0 endings)
+#           0.467us avg | 0.206s total | 2.06% of budget
+# resample_const: 441000 calls (0 endings)
+#                 0.466us avg | 0.206s total | 2.06% of budget
+# zoh: 441000 calls (0 endings)
+#      0.390us avg | 0.172s total | 1.72% of budget
+# resample cyclelist: 441000 calls (0 endings)
+#                     0.304us avg | 0.134s total | 1.34% of budget
+# resample_const cyclelist: 441000 calls (0 endings)
+#                           0.236us avg | 0.104s total | 1.04% of budget
+# zoh cyclelist: 441000 calls (0 endings)
+#                0.230us avg | 0.101s total | 1.01% of budget
+# ZohWavetable: 441000 calls (0 endings)
+#               0.096us avg | 0.042s total | 0.42% of budget
+# Wavetable: 441000 calls (0 endings)
+#            0.101us avg | 0.045s total | 0.45% of budget
+# Osc: 441000 calls (0 endings)
+#      0.091us avg | 0.040s total | 0.40% of budget
+# rawer_osc: 441000 calls (0 endings)
+#            0.081us avg | 0.036s total | 0.36% of budget
+
+# I see.
+# It's not even that function-streams are slower.
+# It's that @raw_stream makes them slow - to the tune of 0.21% of the budget.
+# Hm.

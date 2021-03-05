@@ -651,7 +651,7 @@ def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
 def interp(stream, time=0, prev_time=None, prev_value=None, next_time=0, next_value=0):
     # TODO: adopt a consistent policy re. this kind of convenience conversion
     if not isinstance(stream, Stream):
-        stream = list_to_stream(stream)
+        stream = to_stream(stream)
     # TODO: rewrite this more simply (and probably more efficiently); see glide(), example.
     def closure():
         nonlocal stream, time, prev_time, prev_value, next_time, next_value
