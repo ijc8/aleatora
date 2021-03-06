@@ -1,15 +1,13 @@
 import queue
+import sys
+import traceback
+import types
 
 import mido
 
 from core import *
 from midi import *
 
-def play(stream=None):
-    if stream:
-        manager.play(None, stream)
-    else:
-        manager.stop(None)
 
 class StreamManager:
     def __init__(self, finish_callback):
@@ -59,15 +57,14 @@ class StreamManager:
         self.playing_streams = next_playing_streams
         return (acc, self)
     
-    def play(self, name, stream):
-        # TODO: rename stream -> resource
-        if isinstance(stream, Stream):
-            stream = stream
-        elif isinstance(stream, Instrument):
+    def play(self, name, resource):
+        if isinstance(resource, Stream):
+            stream = resource
+        elif isinstance(resource, types.FunctionType) and resource.metadata.get('instrument'):
             p = mido.open_input(mido.get_input_names()[1])
-            stream = stream(event_stream(p))
+            stream = resource(event_stream(p))
         else:
-            raise ValueError(f"Expected Stream or Instrument, got {type(stream)}.")
+            raise ValueError(f"Expected Stream or instrument, got {type(resource)}.")
         if name in self.streams and self.streams[name][0] is stream:
             self.to_change.put((name, self.streams[name][1]))
         else:

@@ -124,7 +124,7 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const Stream = ({ name, stream, finished }) => {
+const Stream = ({ name, resource, finished }) => {
   // TODO: Separate widget for Instruments.
   const [expanded, setExpanded] = useState(-1)
   const [playing, setPlaying] = useState(false)
@@ -134,9 +134,9 @@ const Stream = ({ name, stream, finished }) => {
   }
 
   let tabs = [InspectorTab]
-  console.log(stream)
-  if (tabMap[stream.name] !== undefined) {
-    tabs.push(tabMap[stream.name])
+  console.log(resource)
+  if (tabMap[resource.name] !== undefined) {
+    tabs.push(tabMap[resource.name])
   }
   tabs.push(HelpTab)
 
@@ -154,7 +154,7 @@ const Stream = ({ name, stream, finished }) => {
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
         </button>
-        {stream.type === 'instrument' &&
+        {resource.instrument &&
         <button className="resource-control" onClick={() => send({ cmd: "record", name })}>
           <Icon name="fiber_manual_record" style={{color: "red", fontSize: "18px", paddingLeft: "2px", paddingBottom: "1px"}} />
         </button>}
@@ -176,7 +176,7 @@ const Stream = ({ name, stream, finished }) => {
       </div>
       {expanded >= 0 && (() => {
         const Tab = tabs[expanded]
-        return <div className="resource-content"><Tab name={name} resource={stream} /></div>
+        return <div className="resource-content"><Tab name={name} resource={resource} /></div>
       })()}
     </div>
   )
@@ -222,7 +222,7 @@ const REPL = ({ setAppendOutput, setRunCode }) => {
     // Scroll to the new prompt.
     textarea.current.scrollTop = textarea.current.scrollHeight
     console.log("Submitting editor code:", code)
-    send({ cmd: "exec", code })
+    send({ cmd: "exec", mode: "exec", code })
   })
 
   const onKeyDown = (event) => {
@@ -266,7 +266,7 @@ const REPL = ({ setAppendOutput, setRunCode }) => {
       textarea.current.selectionStart = textarea.current.selectionEnd = textarea.current.value.length
       const code = textarea.current.value.slice(inputStart.current)
       console.log("Submitting REPL code:", code)
-      send({ cmd: "exec", code })
+      send({ cmd: "exec", mode: "single", code })
       inputStart.current = textarea.current.value.length + 1
       console.log("sent successfully")
       history[history.length - 1].original = history[history.length - 1].modified = history[historyIndex].modified
@@ -297,8 +297,8 @@ const filterResources = (modules, filter) => {
 }
 
 const Resource = ({ name, value, focus, setFocus }) => {
-  const icons = {stream: "water", instrument: "piano", function: "microwave"}
-  return <li onClick={setFocus} className={focus ? "focused" : ""}><span className="resource-name"><Icon name={icons[value.type]} /> {name}</span></li>
+  const icon = (value.type === "stream" ? "water" : (value.instrument ? "piano" : "microwave"))
+  return <li onClick={setFocus} className={focus ? "focused" : ""}><span className="resource-name"><Icon name={icon} /> {name}</span></li>
 }
 
 const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
@@ -442,7 +442,7 @@ const App = () => {
       <div className="details">
         {/* TODO: Tiny controls in resource pane */}
         {focus !== null &&
-        <Stream name={focus} stream={focusResource} finished={focus === finished} />}
+        <Stream name={focus} resource={focusResource} finished={focus === finished} />}
       </div>
       <div className="editor">
         <CodeEditor runCode={runCode.current} />

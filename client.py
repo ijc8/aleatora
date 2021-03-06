@@ -5,7 +5,6 @@ import json
 import types
 import cloudpickle as pickle
 import os
-import queue
 
 from core import *
 import audio
@@ -161,35 +160,35 @@ encode = lambda s: hex(s)[2:]
 
 def serialize(resource):
     seen = set()
-    def dfs(resource, inner=False):
-        if resource in seen:
+    def dfs(resource):
+        if id(resource) in seen:
             return {'name': '@' + encode(id(resource))}
-        seen.add(resource)
+        seen.add(id(resource))
         if isinstance(resource, Stream):
             stream = resource
             info = stream.inspect()
             info['type'] = 'stream'
             info['id'] = encode(id(stream))
-            info['parameters'] = {n: dfs(p, True) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
+            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
             if 'children' in info:
-                info['children']['streams'] = [dfs(child, True) for child in info['children']['streams']]
+                info['children']['streams'] = [dfs(child) for child in info['children']['streams']]
             if 'implementation' in info:
-                info['implementation'] = dfs(info['implementation'], True)
+                info['implementation'] = dfs(info['implementation'])
             return info
-        elif isinstance(resource, Instrument):
-            return {'type': 'instrument', 'name': resource.name}
         elif isinstance(resource, types.FunctionType):
-            if inner:
-                # May be a quick wrapper lambda, or generally an 'un-Streamified' stream function.
-                # Since we got here from seeing it embedded in a stream, we'll go ahead and assume it's also a stream.
-                return {'type': 'stream', 'name': 'raw function'}
-            else:
-                # At the top level, we got this from the stream_registry, so this is a function that returns a stream.
-                # TODO: docstring, signature
-                return {'type': 'function', 'name': resource.__qualname__}
+            # May be a quick wrapper lambda, or generally an 'un-Streamified' stream function.
+            # Since we got here from seeing it embedded in a stream, we'll go ahead and assume it's also a stream.
+            return {'type': 'stream', 'name': 'raw function'}
         else:
-            # Probably an error, if this is embedded where a stream is expected...
-            return {'type': 'unknown', 'name': f'mystery object: {type(resource)}'}
+            assert(False)
+    if isinstance(resource, Stream):
+        return dfs(resource)
+    elif isinstance(resource, types.FunctionType):
+        # Something registered; a stream-creating function (including instruments).
+        # TODO: docstring, signature
+        return {'type': 'function', 'name': resource.__qualname__, **resource.metadata}
+    else:
+        assert(False)
         
     return dfs(resource)
 
@@ -210,16 +209,11 @@ def get_resources():
                 resources[value.__module__][var_name] = value
         for var_name, value in module.__dict__.items():
             if isinstance(value, Stream):
-                print(var_name, value)
                 if (var_name, value) not in variables_seen:
                     variables_seen.add((var_name, value))
                     if module_name not in resources:
                         resources[module_name] = {}
                     resources[module_name][var_name] = value
-            elif isinstance(value, Instrument):
-                if value.__module__ not in resources:
-                    resources[value.__module__] = {}
-                resources[value.__module__][var_name] = value
             # Note that we check if this is a module, not isinstance: this excludes CompiledLibs.
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
@@ -231,6 +225,12 @@ def get_resources():
 class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
+
+def play(stream=None):
+    if stream:
+        manager.play(None, stream)
+    else:
+        manager.stop(None)
 
 async def serve(websocket, path):
     finished_event = EventThreadSafe()
@@ -292,7 +292,7 @@ async def serve(websocket, path):
             elif cmd == 'exec':
                 with stdIO() as s:
                     try:
-                        code = compile(data['code'], '<assistant>', 'single')
+                        code = compile(data['code'], '<assistant>', data['mode'])
                         exec(code, globals=globals())
                     except:
                         traceback.print_exc()

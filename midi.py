@@ -20,24 +20,8 @@ def event_stream(port):
 # while not persisting is useful for sequencing, or building up instruments
 # (as in converting a monophonic instrument to polyphonic).
 
-
-class Instrument:
-    def __init__(self, make_stream, name="mystery instrument"):
-        self.make_stream = make_stream
-        self.name = name
-    
-    def __call__(self, *args, **kwargs):
-        return self.make_stream(*args, **kwargs)
-
-
-def instrument(f, raw=True):
-    if raw:
-        return Instrument(raw_stream(f), name=f.__name__)
-    return Instrument(stream(f), name=f.__name__)
-
-
 # Simple sine instrument. Acknowledges velocity, retriggers.
-@instrument
+@raw_stream(instrument=True)
 def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
     def closure():
         result = stream()
@@ -75,7 +59,7 @@ def poly(monophonic_instrument, persist_internal=False):
         substream.message = None
         return substream
 
-    @instrument
+    @raw_stream(register=False)
     def polyphonic_instrument(stream, substreams={}, voices=[], persist=True):
         def closure():
             result = stream()
@@ -126,7 +110,9 @@ def poly(monophonic_instrument, persist_internal=False):
         return closure
     return polyphonic_instrument
 
-poly_instrument = poly(mono_instrument)
+@stream(instrument=True)
+def poly_instrument(event_stream):
+    return poly(mono_instrument)(event_stream)
 
 
 # Takes [(pitch, duration)] and converts it to a Stream of Messages.

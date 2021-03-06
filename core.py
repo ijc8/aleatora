@@ -62,21 +62,24 @@ def make_inspector(fn):
         }
     return closure
 
-def register_stream(f):
+def register_stream(f, **kwargs):
     if f.__module__ not in stream_registry:
         stream_registry[f.__module__] = {}
+    f.metadata = kwargs
     stream_registry[f.__module__][f.__qualname__] = f
     return f
 
 # This wraps primitive streams (functions) and gives them namers/inspectors.
 # Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
 # Assumes the decorated function is lazily recursive.
-def raw_stream(f=None, namer=None, inspector=None):
+# TODO: merge with @stream?
+def raw_stream(f=None, namer=None, inspector=None, register=True, **kwargs):
     def wrapper(f):
         nonlocal namer, inspector
         namer = namer or make_namer(f)
         inspector = inspector or make_inspector(f)
-        register_stream(f)
+        if register:
+            register_stream(f, **kwargs)
         return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
     if f:
         return wrapper(f)
@@ -104,12 +107,13 @@ def namify(namer, inspector, init_stream):
 #       this adds overhead because namify wraps an existing Stream (much like Map).
 # TODO: Avoid overhead by overwriting NamedStream.namer/inspector
 # Can potentially store the old values on NamedStream anyway, to allow peeking at implementation
-def stream(f=None, namer=None, inspector=None):
+def stream(f=None, namer=None, inspector=None, register=True, **kwargs):
     def wrapper(f):
         nonlocal namer, inspector
         namer = namer or make_namer(f)
         inspector = inspector or make_inspector(f)
-        register_stream(f)
+        if register:
+            register_stream(f, **kwargs)
         def inner(*args, **kwargs):
             init_stream = f(*args, **kwargs)
             return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
