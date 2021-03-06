@@ -1638,3 +1638,191 @@ profile.dump()
 # It's not even that function-streams are slower.
 # It's that @raw_stream makes them slow - to the tune of 0.21% of the budget.
 # Hm.
+
+# 3/6/2021
+
+from core import *
+from audio import *
+volume(0.015)
+play(sqr(440))
+play()
+
+import graph
+import numpy as np
+graph.plot(sqr(440)[:0.05])
+graph.plot(np.log10(np.abs(np.fft.rfft(list(sqr(440)[:1.0])))))
+
+s = np.zeros(SAMPLE_RATE)
+for k in range(1, int(SAMPLE_RATE/2/440) + 1, 2):
+# for k in range(1, 12, 2):
+    print(440*k)
+    s += 4/np.pi*np.sin(2*np.pi*440*k/SAMPLE_RATE*np.arange(len(s)))/k
+graph.plot(np.log10(np.abs(np.fft.rfft(s))))
+
+graph.plot(sqr(440)[:0.01])
+graph.plot(s[:int(SAMPLE_RATE*0.01)])
+
+play(sqr(440)[:1.0])
+play(to_stream(s))
+
+def clean_sqr(freq):
+    s = np.zeros(math.ceil(SAMPLE_RATE / freq))
+    rate = len(s) / (SAMPLE_RATE / freq)
+    for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2):
+        # print(freq*k, freq/rate*k)
+        s += 4/np.pi*np.sin(2*np.pi*freq/rate*k/SAMPLE_RATE*np.arange(len(s)))/k
+    # graph.plot(s)
+    return Wavetable(s.tolist(), rate)
+
+play()
+play(clean_sqr(440))
+graph.plot(clean_sqr(440)[:0.01])
+
+graph.plot(np.log10(np.abs(np.fft.rfft(s))))
+graph.plot(np.log10(np.abs(np.fft.rfft(list(sqr(440)[:1.0])))))
+graph.plot(np.log10(np.abs(np.fft.rfft(s[:int(SAMPLE_RATE*1.0)]))))
+graph.plot(np.log10(np.abs(np.fft.rfft(list(clean_sqr(440)[:1.0])))))
+
+def clean_sqr2(freq, resolution=None):
+    if resolution is None:
+        resolution = int(SAMPLE_RATE / freq)
+    s = np.zeros(resolution)
+    rate = resolution / (SAMPLE_RATE / freq)
+    for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2):
+        s += 4/np.pi*np.sin(2*np.pi*freq/rate*k/SAMPLE_RATE*np.arange(resolution))/k
+    return Wavetable(s.tolist(), rate)
+
+np.mean(np.abs(list((to_stream(s) + -sqr(440))[:1.0])))
+np.mean(np.abs(list((to_stream(s) + -clean_sqr(440))[:1.0])))
+np.mean(np.abs(list((to_stream(s) + -clean_sqr2(440))[:1.0])))
+
+import matplotlib.pyplot as plt
+resolutions = 2**np.arange(1, 20)
+errors = [np.mean(np.abs(list((to_stream(s) + -clean_sqr2(440, resolution))[:1.0])))
+          for resolution in resolutions]
+plt.plot(resolutions, np.log10(errors))
+plt.show()
+
+# Curious; this does not match my observations from osc_by_table yesterday.
+def osc_by_table(freq, resolution=1024):
+    sine_table = np.sin(np.linspace(0, 2*np.pi, resolution, endpoint=False))
+    base_freq = SAMPLE_RATE / resolution
+    return resample(cycle(to_stream(sine_table)), const(freq / base_freq))
+
+resolutions = 2**np.arange(1, 10)
+errors = [np.mean(np.abs(list((osc(440) + -osc_by_table(440, resolution))[:1.0])))
+          for resolution in resolutions]
+plt.plot(resolutions, np.log10(errors))
+plt.show()
+
+def osc_by_table(freq, resolution=1024):
+    sine_table = np.sin(np.linspace(0, 2*np.pi, resolution, endpoint=False))
+    base_freq = SAMPLE_RATE / resolution
+    return Wavetable(sine_table.tolist(), freq / base_freq)
+
+# Ah, but now it does (using Wavetable rather than resample), and the errors are lower to boot.
+# This further hints at a bug in resample.
+
+play()
+play(sqr(1000))
+play(clean_sqr2(1000, 32))
+play(clean_sqr2(1000, 64))
+play(clean_sqr2(1000, 1024))
+
+def perfect_sqr(freq, dur):
+    dur = convert_time(dur)
+    s = np.zeros(dur)
+    for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2):
+        s += 4/np.pi*np.sin(2*np.pi*freq*k/SAMPLE_RATE*np.arange(dur))/k
+    return to_stream(s)
+
+np.mean(np.abs(list((perfect_sqr(440, SAMPLE_RATE) + -sqr(440))[:1.0])))
+np.mean(np.abs(list((perfect_sqr(440, SAMPLE_RATE) + -clean_sqr(440))[:1.0])))
+
+graph.plot(sqr(1000)[:0.01])
+graph.plot(perfect_sqr(1000, 0.01))
+
+np.mean(np.abs(list((perfect_sqr(1000, SAMPLE_RATE) + -sqr(1000))[:1.0])))
+np.mean(np.abs(list((perfect_sqr(1000, SAMPLE_RATE) + -clean_sqr(1000))[:1.0])))
+np.mean(np.abs(list((perfect_sqr(1000, SAMPLE_RATE) + -clean_sqr2(1000, 256))[:1.0])))
+
+play(sqr(1000))
+play(clean_sqr(1000))
+play(clean_sqr2(1000, 1024))
+play()
+
+from prof import profile
+profile.reset()
+_ = list((profile("0", sqr(1000)) + profile("1", clean_sqr(1000)) + profile("2", clean_sqr2(1000, 1024)))[:1.0])
+profile.dump()
+
+# Now let's take the start-up cost into account.
+profile.reset()
+_ = list((profile("0", lambda: sqr(1000)()) + profile("1", lambda: clean_sqr(1000)()) + profile("2", lambda: clean_sqr2(1000, 1024)()) + profile("3", lambda: clean_sqr2(1000, 16384)()))[:1.0])
+profile.dump()
+
+# Looks like the Wavetable version is still a good bet.
+# For completeness:
+def cleanest_sqr(freq):
+    return sum(osc(freq*k)/k for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)) * 4/math.pi
+
+np.mean(np.abs(list((perfect_sqr(1000, SAMPLE_RATE) + -cleanest_sqr(1000))[:1.0])))
+
+class Sqr(Stream):
+    def __init__(self, freq, phase=0):
+        self.freq = freq
+        self.phase = phase
+    
+    def __call__(self):
+        return (4/math.pi*sum(math.sin(self.phase*k)/k for k in range(1, int(SAMPLE_RATE/2/self.freq) + 1, 2)), Sqr(self.freq, self.phase + 2*math.pi*self.freq/SAMPLE_RATE))
+
+class Additive(Stream):
+    def __init__(self, parts, phase=0):
+        self.parts = parts
+        self.phase = phase
+    
+    def __call__(self):
+        return (sum(math.sin(self.phase*freq)*amplitude for amplitude, freq in self.parts), Additive(self.parts, self.phase + 2*math.pi/SAMPLE_RATE))
+
+def add_sqr(freq):
+    return Additive([(4/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)])
+
+def additive(parts, phase=0):
+    def closure():
+        return (sum(math.sin(phase*freq)*amplitude for amplitude, freq in parts), additive(parts, phase + 2*math.pi/SAMPLE_RATE))
+    return closure
+
+def add_sqr2(freq):
+    return additive([(4/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)])
+
+@raw_stream
+def additive2(parts, phase=0):
+    return lambda: (sum(math.sin(phase*freq)*amplitude for amplitude, freq in parts), additive(parts, phase + 2*math.pi/SAMPLE_RATE))
+
+def add_sqr3(freq):
+    return additive2([(4/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)])
+
+np.mean(np.abs(list((perfect_sqr(1000, SAMPLE_RATE) + -Stream(add_sqr2(1000)))[:1.0])))
+
+graph.plot(add_sqr(440)[:1.0])
+
+profile.reset()
+_ = list((profile("0", lambda: sqr(1000)()) +
+          profile("1", lambda: clean_sqr(1000)()) +
+          profile("2", lambda: clean_sqr2(1000, 1024)()) +
+          profile("3", lambda: clean_sqr2(1000, 16384)()) +
+          profile("4", lambda: cleanest_sqr(1000)()) +
+          profile("5", lambda: Sqr(1000)()) +
+          profile("6", lambda: add_sqr(1000)()) +
+          profile("7", lambda: add_sqr2(1000)()) +
+          profile("8", lambda: add_sqr3(1000)()) +
+          profile("osc", lambda: osc(1000)()))[:5.0])
+profile.dump()
+
+play(sqr(440))
+play(Sqr(440))
+play(add_sqr3(440))
+play()
+
+# Wavetable provides a nice tradeoff between error and time (and it's a straight upgrade to sqr()).
+# But additive() provides unbeatable error and seemingly decent performance.

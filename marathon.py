@@ -39,3 +39,5 @@ def mono_guitar(stream, s=1, length=3.0, persist=False):
 def guitar(event_stream):
     return poly(mono_guitar)(event_stream)
 # play(poly(lambda *args, **kwargs: mono_guitar(*args, **kwargs, s=0.7))(event_stream(p)))
+
+freqs = [215, 430*2/3, 430*2/3*5/4, 430]

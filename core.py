@@ -501,9 +501,10 @@ def to_stream(x):
 def osc(freq):
     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
 
+# NOTE: Aliased.
 @stream
 def sqr(freq):
-    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) > 0.5) * 2 - 1)
+    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < 0.5) * 2 - 1)
 
 def basic_envelope(length):
     length = convert_time(length)
@@ -621,6 +622,7 @@ def pulse(freq, duty):
 def fm_pulse(freq_stream, duty):
     return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: int(((phase/SAMPLE_RATE) % 1) < duty) * 2 - 1)
 
+# NOTE: Aliased.
 @stream
 def tri(freq):
     return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
@@ -630,6 +632,7 @@ rand = NamedStream("rand", lambda: (random.random(), rand))
 
 
 # Stream-controlled resampler. Think varispeed.
+# TODO: Debug. Compared with Wavetable, which interpolates the same way, the results here are slightly off.
 @raw_stream
 def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
     def closure():
@@ -775,3 +778,23 @@ def events_in_time(timed_events, filler=None):
         stream = stream >> const(filler)[:time - last_time] >> just(event)
         last_time = time + 1  # account for the fact that just(item) has length 1.
     return stream
+
+# Simple additive synthesis: takes in [(amplitude, frequency)].
+@raw_stream
+def additive(parts, phase=0):
+    return lambda: (sum(math.sin(phase*freq)*amplitude for amplitude, freq in parts), additive(parts, phase + 2*math.pi/SAMPLE_RATE))
+
+# Anti-aliased: these only generate harmonics up to half the sample rate.
+@stream
+def aa_sqr(freq):
+    return additive([(4/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)])
+
+@stream
+def aa_tri(freq):
+    return additive([((-1)**((k-1)/2)*8/math.pi**2/k**2, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1, 2)])
+
+
+@stream
+def aa_saw(freq):
+    return additive([((-1)**k*2/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1)])
+
