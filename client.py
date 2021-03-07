@@ -186,7 +186,7 @@ def serialize(resource):
     elif isinstance(resource, types.FunctionType):
         # Something registered; a stream-creating function (including instruments).
         # TODO: docstring, signature
-        return {'type': 'function', 'name': resource.__qualname__, **resource.metadata}
+        return {'type': 'function', 'name': resource.__qualname__, 'doc': resource.__doc__, **resource.metadata}
     else:
         assert(False)
         

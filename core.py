@@ -91,7 +91,7 @@ def namify(namer, inspector, init_stream):
         d = inspector()
         d['implementation'] = stream
         return d
-    @raw_stream(namer=namer, inspector=_inspector)
+    @raw_stream(namer=namer, inspector=_inspector, register=False)
     def wrapper(stream):
         def closure():
             result = stream()
@@ -430,6 +430,7 @@ def count(start=0):
 
 @raw_stream
 def const(value):
+    "Yield the same value forever."
     return lambda: (value, const(value))
 
 silence = const(0)

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import Editor from "@monaco-editor/react";
 import './App.css'
 
@@ -58,29 +58,42 @@ InspectorTab.icon = "zoom_in"
 const HelpTab = ({ name, resource }) => {
   return <ul>
     <li>Type: {resource.type}</li>
-    <li>Docstring: TODO</li>
+    <li>Documentation: {resource.doc}</li>
   </ul>
 }
 
 HelpTab.icon = "help_outline"
 
 const EnvelopeTab = ({ name, resource }) => {
-  const env = useRef(null)
+  const outer = useRef()
+  const env = useRef()
   const points = resource.parameters.points
   useEffect(() => {
     if (!env.current) {
+      const rect = outer.current.getBoundingClientRect()
       env.current = new Nexus.Envelope('#envelope', {
+        size: [rect.width, rect.height],
         points: (points === undefined ? [{x: 0, y: 0}] : points.map(([x, y]) => ({x, y})))
       })
     }
   }, [])
 
-  return <div>
+  useLayoutEffect(() => {
+    const updateSize = () => {
+      const rect = outer.current.getBoundingClientRect()
+      env.current.resize(rect.width, rect.height)
+    }
+    window.addEventListener('resize', updateSize)
+    // updateSize()
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
+
+  return <div className="envelope-tab">
     <div className="envelope-toolbar">
       <span className="needs-better-name">... envelope duration ...</span>
       <button onClick={() => send({ cmd: "save", type: "envelope", name, payload: env.current.points })}><Icon name="save" /></button>
     </div>
-    <div id="envelope" />
+    <div ref={outer} id="envelope" style={{flexGrow: 1, overflow: 'hidden', minHeight: 0}} />
   </div>
 }
 
@@ -150,6 +163,7 @@ const Stream = ({ name, resource, finished }) => {
         </button>
         <button className="resource-control" onClick={() => {
           send({ cmd: playing ? "pause" : "play", name })
+          console.log(name)
           setPlaying(!playing)
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
@@ -296,9 +310,17 @@ const filterResources = (modules, filter) => {
   return filtered
 }
 
-const Resource = ({ name, value, focus, setFocus }) => {
+const Resource = ({ name, fullName, value, focus, setFocus }) => {
+  const [playing, setPlaying] = useState(false)
   const icon = (value.type === "stream" ? "water" : (value.instrument ? "piano" : "microwave"))
-  return <li onClick={setFocus} className={focus ? "focused" : ""}><span className="resource-name"><Icon name={icon} /> {name}</span></li>
+  return <li onClick={setFocus} className={focus ? "focused" : ""}>
+    <span className="resource-name"><Icon name={icon} /> {name}</span>
+    {value.type === "stream" &&
+    <button onClick={() => {
+      send({ cmd: playing ? "pause" : "play", name: fullName })
+      setPlaying(!playing)
+    }} className="resource-pane-button"><Icon name={playing ? "pause" : "play_arrow"} /></button>}
+  </li>
 }
 
 const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
@@ -311,7 +333,7 @@ const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
     <ul className="resource-list">
       {Object.entries(resources).map(([resourceName, value]) => {
         const fullName = `${name}.${resourceName}`
-        return <Resource key={resourceName} name={resourceName} value={value} focus={focus === fullName} setFocus={() => setFocus(fullName)} />
+        return <Resource key={resourceName} name={resourceName} fullName={fullName} value={value} focus={focus === fullName} setFocus={() => setFocus(fullName)} />
       })}
     </ul>}
   </li>

@@ -41,3 +41,12 @@ def guitar(event_stream):
 # play(poly(lambda *args, **kwargs: mono_guitar(*args, **kwargs, s=0.7))(event_stream(p)))
 
 freqs = [215, 430*2/3, 430*2/3*5/4, 430]
+
+
+octave = [-12, 0, 2, 4, 7, 9, 12]
+
+def notes():
+    note = random.choice(octave) + 60
+    return (mido.Message(type='note_on', note=note), const(None)[:0.3] >> cons(mido.Message(type='note_off', note=note), notes))
+
+play(guitar(notes))
