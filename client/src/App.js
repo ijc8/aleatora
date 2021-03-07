@@ -56,10 +56,11 @@ const InspectorTab = ({ name, resource }) => <Details {...resource} />
 InspectorTab.icon = "zoom_in"
 
 const HelpTab = ({ name, resource }) => {
-  return <ul>
-    <li>Type: {resource.type}</li>
-    <li>Documentation: {resource.doc}</li>
-  </ul>
+  return <div>
+    <h1 className="resource-name">{name}<span className="signature">{resource.signature}</span></h1><br/>
+    <h2>Resource Type</h2>{resource.type}<br/><br/>
+    <h2>Documentation</h2>{resource.doc}
+  </div>
 }
 
 HelpTab.icon = "help_outline"
@@ -137,10 +138,8 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const Stream = ({ name, resource, finished }) => {
-  // TODO: Separate widget for Instruments.
+const ResourceDetails = ({ name, resource, playing, setPlaying, finished }) => {
   const [expanded, setExpanded] = useState(-1)
-  const [playing, setPlaying] = useState(false)
 
   if (playing && finished) {
     setPlaying(false)
@@ -240,7 +239,6 @@ const REPL = ({ setAppendOutput, setRunCode }) => {
   })
 
   const onKeyDown = (event) => {
-    console.log("keydown", event.keyCode)
     if (event.keyCode === KEY_BACKSPACE && (textarea.current.selectionStart <= inputStart.current)) {
       event.preventDefault()
     } else if (event.keyCode === KEY_DELETE && (textarea.current.selectionStart < inputStart.current)) {
@@ -271,7 +269,6 @@ const REPL = ({ setAppendOutput, setRunCode }) => {
   }
 
   const onKeyPress = (event) => {
-    console.log("keypress", event.charCode)
     if (textarea.current.selectionStart < inputStart.current || event.keyCode === 13) {
       event.preventDefault()
     }
@@ -310,8 +307,7 @@ const filterResources = (modules, filter) => {
   return filtered
 }
 
-const Resource = ({ name, fullName, value, focus, setFocus }) => {
-  const [playing, setPlaying] = useState(false)
+const Resource = ({ name, fullName, value, focus, setFocus, playing, setPlaying }) => {
   const icon = (value.type === "stream" ? "water" : (value.instrument ? "piano" : "microwave"))
   return <li onClick={setFocus} className={focus ? "focused" : ""}>
     <span className="resource-name"><Icon name={icon} /> {name}</span>
@@ -323,7 +319,7 @@ const Resource = ({ name, fullName, value, focus, setFocus }) => {
   </li>
 }
 
-const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
+const Module = ({ name, resources, expand, setExpand, focus, setFocus, playing, setPlaying }) => (
   <li>
     <div className="module-header">
       <button className="module-toggle" onClick={() => setExpand(!expand)}><Icon name={`expand_${expand ? 'less' : 'more'}`} /></button>
@@ -333,13 +329,15 @@ const Module = ({ name, resources, expand, setExpand, focus, setFocus }) => (
     <ul className="resource-list">
       {Object.entries(resources).map(([resourceName, value]) => {
         const fullName = `${name}.${resourceName}`
-        return <Resource key={resourceName} name={resourceName} fullName={fullName} value={value} focus={focus === fullName} setFocus={() => setFocus(fullName)} />
+        return <Resource key={resourceName} name={resourceName} fullName={fullName} value={value}
+                         focus={focus === fullName} setFocus={() => setFocus(fullName)}
+                         playing={playing[fullName]} setPlaying={(p) => setPlaying({...playing, [fullName]: p})} />
       })}
     </ul>}
   </li>
 )
 
-const ResourcePane = ({ resources, focus, setFocus }) => {
+const ResourcePane = ({ resources, focus, setFocus, playing, setPlaying }) => {
   const [filter, setFilter] = useState("")
   const [expand, setExpand] = useState({})
   resources = filterResources(resources, filter)
@@ -350,7 +348,10 @@ const ResourcePane = ({ resources, focus, setFocus }) => {
     <div className="resources">
       <ul className="module-list">
         {Object.entries(resources).map(([name, value]) =>
-          <Module key={name} name={name} resources={value} expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })} focus={focus} setFocus={setFocus} />)}
+          <Module key={name} name={name} resources={value}
+                  expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })}
+                  focus={focus} setFocus={setFocus}
+                  playing={playing} setPlaying={setPlaying} />)}
       </ul>
     </div>
   </>
@@ -397,15 +398,15 @@ const CodeEditor = ({ runCode }) => {
   </div>
 }
 
+
 let socket
 const Nexus = window.Nexus
 const send = (obj) => socket.send(JSON.stringify(obj))
 
+
 const App = () => {
-  const [streams, setStreams] = useState([])
   const [resources, setResources] = useState({})
-  // Used to determine stacking order in floating layout
-  const [zIndices, setZIndices] = useState({})
+  const [playing, setPlaying] = useState({})
   const appendOutput = useRef()
   const runCode = useRef()
   const [finished, setFinished] = useState(null)
@@ -425,7 +426,6 @@ const App = () => {
       const data = JSON.parse(event.data)
       if (data.type === "resources") {
         // TODO: s/streams/resources/g
-        setStreams(data.resources_old)
         console.log(data.resources)
         setResources(data.resources)
       } else if (data.type === "output") {
@@ -460,11 +460,11 @@ const App = () => {
       </div>
       
       {/* Main content */}
-      <ResourcePane resources={resources} focus={focus} setFocus={setFocus} />
+      <ResourcePane resources={resources} focus={focus} setFocus={setFocus} playing={playing} setPlaying={setPlaying} />
       <div className="details">
-        {/* TODO: Tiny controls in resource pane */}
         {focus !== null &&
-        <Stream name={focus} resource={focusResource} finished={focus === finished} />}
+        <ResourceDetails name={focus} resource={focusResource} finished={focus === finished}
+                         playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
       </div>
       <div className="editor">
         <CodeEditor runCode={runCode.current} />

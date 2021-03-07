@@ -1,10 +1,12 @@
 import asyncio
 import math
-import websockets
+import inspect
 import json
 import types
-import cloudpickle as pickle
 import os
+
+import cloudpickle as pickle
+import websockets
 
 from core import *
 import audio
@@ -186,7 +188,7 @@ def serialize(resource):
     elif isinstance(resource, types.FunctionType):
         # Something registered; a stream-creating function (including instruments).
         # TODO: docstring, signature
-        return {'type': 'function', 'name': resource.__qualname__, 'doc': resource.__doc__, **resource.metadata}
+        return {'type': 'function', 'name': resource.__qualname__, 'doc': resource.__doc__, 'signature': str(inspect.signature(resource)), **resource.metadata}
     else:
         assert(False)
         

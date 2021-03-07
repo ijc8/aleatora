@@ -181,6 +181,15 @@ body {
   height: unset;
 }
 
+.resource-name {
+  font-family:'Roboto Mono', monospace;
+}
+
+.signature {
+  font-size: medium;
+  font-weight: lighter;
+}
+
 .envelope-tab {
   height: 100%;
   display: flex;
