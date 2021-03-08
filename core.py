@@ -85,28 +85,8 @@ def raw_stream(f=None, namer=None, inspector=None, register=True, **kwargs):
         return wrapper(f)
     return wrapper
 
-# This is for naming complex streams, which do not refer to themselves.
-def namify(namer, inspector, init_stream):
-    def _inspector(stream):
-        d = inspector()
-        d['implementation'] = stream
-        return d
-    @raw_stream(namer=namer, inspector=_inspector, register=False)
-    def wrapper(stream):
-        def closure():
-            result = stream()
-            if isinstance(result, Return):
-                return result
-            value, next_stream = result
-            return (value, wrapper(next_stream))
-        return closure
-    return wrapper(init_stream)
-
-# Decorator version
-# NOTE: Unlike @raw_stream, where specifying a namer/inspector involves no additional layers of indirection,
-#       this adds overhead because namify wraps an existing Stream (much like Map).
-# TODO: Avoid overhead by overwriting NamedStream.namer/inspector
-# Can potentially store the old values on NamedStream anyway, to allow peeking at implementation
+# This is for naming streams that already return other streams (rather than beng lazily recursive).
+# NOTE: The NamedStream outer layer is only present at the start. Wrapping the entire stream creates excessive overhead.
 def stream(f=None, namer=None, inspector=None, register=True, **kwargs):
     def wrapper(f):
         nonlocal namer, inspector
@@ -116,13 +96,15 @@ def stream(f=None, namer=None, inspector=None, register=True, **kwargs):
             register_stream(f, **kwargs)
         def inner(*args, **kwargs):
             init_stream = f(*args, **kwargs)
-            return namify(lambda *_: namer(*args, **kwargs), lambda *_: inspector(*args, **kwargs), init_stream)
+            def _inspector(*args, **kwargs):
+                d = inspector(*args, **kwargs)
+                d['implementation'] = init_stream
+                return d
+            return NamedStream(namer, init_stream, args, kwargs, _inspector)
         return inner
     if f:
         return wrapper(f)
     return wrapper
-
-
 
 # Helper function to reduce boilerplate in the class definition below.
 def make_stream_op(op, reversed=False):
@@ -367,7 +349,16 @@ class SliceStream(Stream):
         elif self.stop is None and self.step == 1:
             # Special case: no need to wrap this in a slice.
             return self.stream()
+        elif self.stop > 0 and self.step == 1:
+            # Common case: just return the next value.
+            result = self.stream()
+            if isinstance(result, Return):
+                return result
+            value, next_stream = result
+            return (value, SliceStream(next_stream, 0, self.stop - 1, 1))
         elif self.stop is None or self.stop > 0:
+            # step != 1, so we have to skip some values.
+            # (Could also implement this by calling a new SliceStream with start set to step.)
             siter = iter(self.stream)
             for _, value in zip(range(self.step), siter):
                 pass
@@ -764,9 +755,9 @@ def arrange(items):
     return bind(silence[:last_start_time][:prev_start_time], out)
 
 # More new stuff (3/2):
-@stream
+@raw_stream
 def cons(item, stream):
-    return Stream(lambda: (item, stream))
+    return lambda: (item, stream)
 
 def just(item):  # rename so `just` can just return a value?
     return cons(item, empty)
