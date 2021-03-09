@@ -50,6 +50,52 @@ def notes():
     note = random.choice(octave) + 60
     return (mido.Message(type='note_on', note=note), const(None)[:0.3] >> cons(mido.Message(type='note_off', note=note), notes))
 
+from rhythm import *
+# hhc = to_stream(wav.load_mono('samples/hhc.wav'))
+# play(cycle(freeze(beat('xxx.xx.x.xx.', hhc, rpm=30))), cycle(freeze(beat('xxx.xx.x.xx..', hhc, rpm=30*12/13))))
+
+# play(cycle(beat('xxx.xx.x.xx.', pluck(m2f(36), s=0.6), rpm=30)) + cycle(beat('xxx.xx.x.xx..', pluck(m2f(72), s=0.9), rpm=30*12/13)))
+# play(cycle(freeze(beat('xxx.xx.x.xx.', pluck(m2f(36), s=0.6), rpm=30))) + cycle(freeze(beat('xxx.xx.x.xx..', pluck(m2f(72), s=0.9), rpm=30*12/13))))
+# play()
+
+# convenience function: lazify; ensure that a stream is recreated at play time.
+# handy for livecoding (can affect a cycle by changing a variable/function live), and for streams that employ nondeterminism (like pluck with randbits) on creation.
+def w(f):
+    return Stream(lambda: f()())
+x = 72
+oh_yeah = cycle(beat('xxx.xx.x.xx.', w(lambda: pluck(m2f(36), s=0.6)), rpm=30)) + cycle(beat('xxx.xx.x.xx..', w(lambda: pluck(m2f(x), s=0.9)), rpm=30*12/13))
+
+_ = lazy_concat(cycle(to_stream([72, 70, 69, 67])).map(
+    lambda x: beat('xxx.xx.x.xx.'*12, w(lambda: pluck(m2f(36), s=0.6)), rpm=2) + beat('xxx.xx.x.xx..'*11 + '.', w(lambda: pluck(m2f(x), s=0.9)), rpm=2)))
+
+a = cycle(freeze(lazy_concat(to_stream([72, 70, 69, 67]).map(
+    lambda x: beat('xxx.xx.x.xx.'*12, w(lambda: pluck(m2f(36), s=0.55)), rpm=2) + beat('xxx.xx.x.xx..'*11 + '.', w(lambda: pluck(m2f(x), s=0.9)), rpm=2)))))
+import filters
+b = filters.bpf(a, const(1000) + osc(3) * 800, 2)
+b = filters.bpf(a, const(1000) + osc(10) * 200, 10)
+
+a = cycle(freeze(lazy_concat(to_stream([72, 70, 69, 67]).map(
+    lambda x: beat('xxx.xx.x.xx.'*12, w(lambda: pluck(m2f(36), s=0.55)), rpm=2) + beat('xxx.xx.x.xx..'*11 + '.', w(lambda: pluck(m2f(x), s=0.9)), rpm=2)))))
+import filters
+b = filters.bpf(a, const(1000) + osc(10) * 200, 5)
+from speech import *
+c = speech("Marathon!")
+d = speech("Victory!")
+s2 = speech("Messenger")
+s3 = speech("Pheidippides")
+e = stutter(c, 0.1, 18)
+f = stutter(d, 0.05, 3)
+p2 = stutter(resample(cycle(s2), const(0.5)), 0.15, 2)
+p3 = stutter(resample(cycle(d), const(1.2)), 0.075, 3)
+
+bass = aa_tri(m2f(36)) # aa_saw(m2f(36))/8
+# Note the distinction between stutter(cycle(list_stream)) and cycle(stutter(list_stream)).
+play(b + p2 + p3 + stutter(cycle(c), 0.1, 18) + bass)
+play()
+
+# tomorrow, melody shorthands.
+# F-E..., C..., Eb...
+
 import cProfile as profile
 profile.run('list(guitar(notes)[:10.0])', sort='cumtime')
 

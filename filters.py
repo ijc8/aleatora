@@ -38,7 +38,7 @@ def svf_block(input, sample_rate, f, q):
 
     return low, high, band, notch
 
-@stream("svf_proto")
+@raw_stream
 def svf_proto(stream, f, q, prev_low=0, prev_band=0):
     def closure():
         result = stream()
@@ -54,7 +54,7 @@ def svf_proto(stream, f, q, prev_low=0, prev_band=0):
         return ((low, high, band), svf(next_stream, f, q, low, band))
     return closure
 
-@stream("svf")
+@raw_stream
 def svf(stream, f_stream, q, prev_low=0, prev_band=0):
     assert(q >= 0.5)
     def closure():
