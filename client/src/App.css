@@ -91,6 +91,7 @@ body {
   grid-row: 2 / 4;
   grid-column: 3;
   word-wrap: anywhere;
+  min-width: 0;
 }
 
 .project {
@@ -199,6 +200,14 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+}
+
+.node h1 {
+  white-space: nowrap;
+}
+
+.stream-id {
+  white-space: nowrap;
 }
 
 /* Old stuff: */
@@ -364,6 +373,7 @@ h2 {
   margin: 10px;
   display: flex;
   align-items: center;
+  white-space: nowrap;
 }
 
 .top-down {
@@ -380,7 +390,7 @@ h2 {
   color: gray;
 }
 
-.implementation div {
+.implementation > div {
   border-color: gray;
   border-style: dashed;
 }

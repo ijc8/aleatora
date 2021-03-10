@@ -8,9 +8,9 @@ from core import *
 from audio import *
 
 @stream
-def speech(text):
+def speech(text, lang='en', slow=False, tld='com'):
     mp3_fp = BytesIO()
-    tts = gTTS(text, lang='en')
+    tts = gTTS(text, lang=lang, slow=slow, tld=tld)
     tts.write_to_fp(mp3_fp)
     decoder = MP3Decoder(mp3_fp.getvalue())
     assert(decoder.num_channels == 1)

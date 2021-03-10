@@ -12,10 +12,13 @@ import './App.css'
 const Icon = ({ name, style }) => <i className="material-icons" style={style}>{name}</i>
 
 const Value = ({value}) => {
-  if (Array.isArray(value) || ["number", "string", "boolean"].includes(typeof value)) {
-    return JSON.stringify(value)
+  if (typeof(value) === "string") {
+    return value
+  } else if (typeof(value) === "object") {
+    return <Details {...value} />
+  } else {
+    throw "Expected object or string."
   }
-  return <Details {...value} />
 }
 
 // TODO: cycle checking, fix styling

@@ -5,6 +5,7 @@ import math
 import time
 import operator
 import random
+import pickle
 
 
 # This is the default sample rate, but it may be modified by audio module to
@@ -790,3 +791,33 @@ def aa_tri(freq):
 def aa_saw(freq):
     return additive([((-1)**k*2/math.pi/k, freq*k) for k in range(1, int(SAMPLE_RATE/2/freq) + 1)])
 
+
+# `w` for 'wrap'. a convenience function: lazify; ensure that a stream is recreated at play time.
+# handy for livecoding (can affect a cycle by changing a variable/function live), and for streams that employ nondeterminism (like pluck with randbits) on creation.
+def w(f):
+    return Stream(lambda: f()())
+
+# Freeze a stream and save the result to a file.
+# If the file already exists, load it instead of running the stream.
+# Like freeze(), assumes `stream` is finite.
+@stream
+def frozen(name, stream):
+    # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
+    # (Hashes differently between session, if referenced objects are created in the session.)
+    try:
+        with open(f'frozen_{name}.pkl', 'rb') as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        # File doesn't exist: stream hasn't been frozen before.
+        stream = ListStream(list(stream))
+        with open(f'frozen_{name}.pkl', 'wb') as f:
+            pickle.dump(stream, f)
+        return stream
+
+@stream
+def log_stream(print_period=1):
+    def maybe_print(x):
+        if x % print_period == 0:
+            print("Log:", x)
+        return 0
+    return count().map(maybe_print)

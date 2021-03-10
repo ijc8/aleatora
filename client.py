@@ -2,8 +2,9 @@ import asyncio
 import math
 import inspect
 import json
-import types
 import os
+import reprlib
+import types
 
 import cloudpickle as pickle
 import websockets
@@ -171,7 +172,7 @@ def serialize(resource):
             info = stream.inspect()
             info['type'] = 'stream'
             info['id'] = encode(id(stream))
-            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else p for n, p in info['parameters'].items()}
+            info['parameters'] = {n: dfs(p) if isinstance(p, Stream) else reprlib.repr(p) for n, p in info['parameters'].items()}
             if 'children' in info:
                 info['children']['streams'] = [dfs(child) for child in info['children']['streams']]
             if 'implementation' in info:
