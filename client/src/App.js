@@ -359,10 +359,8 @@ const Settings = ({ doRefresh }) => {
   </div>
 }
 
-const CodeEditor = () => {
+const CodeEditor = ({ editor }) => {
   const dispatch = useDispatch()
-  const editor = useRef()
-  const onMount = (ed => editor.current = ed)
 
   const onKeyDown = (ev) => {
     if (ev.keyCode == KEY_ENTER && ev.shiftKey) {
@@ -375,8 +373,30 @@ const CodeEditor = () => {
       ev.preventDefault()
     }
   }
+
   return <div onKeyDown={onKeyDown} style={{height: '100%'}}>
-    <Editor defaultLanguage="python" onMount={onMount} onChange={() => console.log(editor.current)} />
+    <Editor defaultLanguage="python" onMount={ed => editor.current = ed} />
+  </div>
+}
+
+const ProjectBar = ({ create, open, save }) => {
+  const [name, setName] = useState("Untitled Project")
+  const [editing, setEditing] = useState(false)
+
+  const finish = (e) => {
+    setName(e.target.textContent)
+    setEditing(false)
+  }
+
+  return <div className="project">
+    <div>
+      <button onClick={() => { create(); setName("A big blank project") }}><Icon name="post_add" /></button>
+      <button onClick={() => open(name)}><Icon name="folder_open" /></button>
+      <button onClick={() => save(name)}><Icon name="save" /></button>
+    </div>
+    {editing
+    ? <div style={{justifyContent: 'center', display: 'flex', alignItems: 'center'}} contentEditable onKeyDown={e => { if (e.key === "Enter") finish(e) }} onBlur={finish}>{name}</div>
+    : <div style={{justifyContent: 'center', display: 'flex', alignItems: 'center'}} onClick={() => setEditing(true)}>{name}</div>}
   </div>
 }
 
@@ -388,11 +408,25 @@ const App = () => {
   const dispatch = useDispatch()
   const replContents = useSelector(repl.selectContents)
 
+  const editor = useRef()
   const [resources, setResources] = useState({})
   const [playing, setPlaying] = useState({})
-  const runCode = useRef()
   const [finished, setFinished] = useState(null)
   const [focus, setFocus] = useState(null)
+
+  const create = () => {
+    dispatch(repl.setContents(">>> "))
+    dispatch(repl.setInputStart(4))
+    editor.current.getModel().setValue("")
+  }
+
+  const open = (name) => {
+    send({cmd: "openproject", name})
+  }
+
+  const save = (name) => {
+    send({cmd: "saveproject", name, editor: editor.current.getModel().getValue(), repl: replContents})
+  }
 
   let focusModule = null, focusName = null, focusResource = null
   if (focus !== null) {
@@ -415,10 +449,12 @@ const App = () => {
         setFinished(data.name)
         setFinished(null)
       } else if (data.type === "project") {
-        console.log(data)
+        editor.current.getModel().setValue(data.editor)
         // TODO: Restore REPL history.
         dispatch(repl.setContents(data.repl))
         dispatch(repl.setInputStart(data.repl.length))
+      } else if (data.type === "error") {
+        console.log(data)
       }
     }
   }, [])
@@ -438,14 +474,8 @@ const App = () => {
           <span>{focusName}</span>
         </>}
       </div>
-      <div className="project">
-        <div>
-          <button><Icon name="post_add" /></button>
-          <button onClick={() => send({cmd: "openproject"})}><Icon name="folder_open" /></button>
-          <button onClick={() => send({cmd: "saveproject", editor: "TODO", repl: replContents})}><Icon name="save" /></button>
-        </div>
-        <div style={{justifyContent: 'center', display: 'flex', alignItems: 'center'}}>Untitled Project</div>
-      </div>
+
+      <ProjectBar create={create} open={open} save={save} />
 
       {/* Left sidebar */}
       <div className="volume">
@@ -460,10 +490,10 @@ const App = () => {
                          playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
       </div>
       <div className="editor">
-        <CodeEditor runCode={runCode.current} />
+        <CodeEditor editor={editor} />
       </div>
       <div className="repl">
-        <REPL setRunCode={(f) => runCode.current = f} />
+        <REPL />
       </div>
     </div>
   </Provider>

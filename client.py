@@ -292,10 +292,13 @@ async def serve(websocket, path):
                 save(resource, resource_name)
                 break
             elif cmd == 'openproject':
-                # TODO: filename is hard-coded for now.
-                with open('project.pkl', 'rb') as f:
-                    project = pickle.load(f)
-                await websocket.send(json.dumps({'type': 'project', 'editor': project['editor'], 'repl': project['repl']}))
+                try:
+                    with open(f"{data['name']}.pkl", 'rb') as f:
+                        project = pickle.load(f)
+                    await websocket.send(json.dumps({'type': 'project', 'editor': project['editor'], 'repl': project['repl']}))
+                except Exception as e:
+                    print(repr(e))
+                    await websocket.send(json.dumps({'type': 'error', 'error': repr(e)}))
             elif cmd == 'saveproject':
                 print("Saving project.")
                 # TODO: pickle user-defined runtime variables?
@@ -306,8 +309,12 @@ async def serve(websocket, path):
                     'editor': data['editor'],
                     'repl': data['repl'],
                 }
-                with open('project.pkl', 'wb') as f:
-                    pickle.dump(project, f)
+                try:
+                    with open(f"{data['name']}.pkl", 'wb') as f:
+                        pickle.dump(project, f)
+                except Exception as e:
+                    print(repr(e))
+                    await websocket.send(json.dumps({'type': 'error', 'error': repr(e)}))
             elif cmd == 'exec':
                 with stdIO() as s:
                     try:
