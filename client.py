@@ -291,6 +291,23 @@ async def serve(websocket, path):
                 globals()[data['name']] = resource
                 save(resource, resource_name)
                 break
+            elif cmd == 'openproject':
+                # TODO: filename is hard-coded for now.
+                with open('project.pkl', 'rb') as f:
+                    project = pickle.load(f)
+                await websocket.send(json.dumps({'type': 'project', 'editor': project['editor'], 'repl': project['repl']}))
+            elif cmd == 'saveproject':
+                print("Saving project.")
+                # TODO: pickle user-defined runtime variables?
+                # The difficulty is in separating the user's stuff from the rest of the runtime.
+                # (We don't want to try to pickle, for example, the sockets used by this server.)
+                # I made one attempt by using exec() with locals=user_namespace, but this came with its own problems.
+                project = {
+                    'editor': data['editor'],
+                    'repl': data['repl'],
+                }
+                with open('project.pkl', 'wb') as f:
+                    pickle.dump(project, f)
             elif cmd == 'exec':
                 with stdIO() as s:
                     try:

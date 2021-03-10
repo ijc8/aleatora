@@ -93,9 +93,12 @@ body {
   word-wrap: anywhere;
 }
 
-.toolbar {
+.project {
   grid-row: 1;
   grid-column: 4;
+  display: grid;
+  grid-template-rows: 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .editor {
@@ -430,16 +433,6 @@ ul.parameter-list {
 
 .module-list {
   overflow: auto;
-}
-
-.module-header {
-  /* box-shadow: 0 3px 3px gray, 0 -3px 3px gray; */
-  /* border-left: 1px solid black;
-  border-right: 1px solid black; */
-}
-
-ul.resource-list {
-  /* box-shadow: inset 0px 2px 3px gray, inset 0px -2px 3px gray; */
 }
 
 ul.resource-list > li {

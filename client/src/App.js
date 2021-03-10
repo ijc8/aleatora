@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { Provider, useSelector, useDispatch } from 'react-redux'
+import store, { repl, socket, send } from './app/store'
 import Editor from "@monaco-editor/react";
 import './App.css'
 
@@ -206,79 +208,58 @@ const KEY_UP = 38
 const KEY_DOWN = 40
 const KEY_DELETE = 46
 
-const REPL = ({ setAppendOutput, setRunCode }) => {
+const REPL = ({ setRunCode }) => {
+  const dispatch = useDispatch()
+  const contents = useSelector(repl.selectContents)
+  const inputStart = useSelector(repl.selectInputStart)
   const textarea = useRef()
-  let inputStart = useRef()
 
   useEffect(() => {
-    textarea.current.value = ">>> "
-    inputStart.current = textarea.current.value.length
-  }, [])
-
-  setAppendOutput((output) => {
-    console.log("new output", output)
-    const history = textarea.current.value.slice(0, inputStart.current)
-    const response = output + '>>> '
-    const input = textarea.current.value.slice(inputStart.current)
-    textarea.current.value = history + response + input
-    inputStart.current += response.length
-    // Scroll to the new prompt.
     textarea.current.scrollTop = textarea.current.scrollHeight
-  })
-
-  setRunCode((code) => {
-    console.log("new input", code)
-    const history = textarea.current.value.slice(0, inputStart.current)
-    const input = textarea.current.value.slice(inputStart.current)
-    textarea.current.value = history + code + "\n" + input
-    inputStart.current += code.length + 1
-    // Scroll to the new prompt.
-    textarea.current.scrollTop = textarea.current.scrollHeight
-    console.log("Submitting editor code:", code)
-    send({ cmd: "exec", mode: "exec", code })
-  })
+  }, [contents])
 
   const onKeyDown = (event) => {
-    if (event.keyCode === KEY_BACKSPACE && (textarea.current.selectionStart <= inputStart.current)) {
+    if (event.keyCode === KEY_BACKSPACE && (textarea.current.selectionStart <= inputStart)) {
       event.preventDefault()
-    } else if (event.keyCode === KEY_DELETE && (textarea.current.selectionStart < inputStart.current)) {
+    } else if (event.keyCode === KEY_DELETE && (textarea.current.selectionStart < inputStart)) {
       event.preventDefault()
-    } else if (event.keyCode === KEY_LEFT && (textarea.current.selectionStart <= inputStart.current)) {
+    } else if (event.keyCode === KEY_LEFT && (textarea.current.selectionStart <= inputStart)) {
       event.preventDefault()
     } else if (event.keyCode === KEY_HOME) {
       event.preventDefault()
-      textarea.current.selectionStart = inputStart.current
-      if (!event.shiftKey) textarea.current.selectionEnd = inputStart.current
+      textarea.current.selectionStart = inputStart
+      if (!event.shiftKey) textarea.current.selectionEnd = inputStart
     } else if (event.keyCode === KEY_UP) {
       event.preventDefault()
       if (historyIndex > 0) {
         historyIndex--
-        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex].modified
+        dispatch(repl.setContents(contents.slice(0, inputStart) + history[historyIndex].modified))
       }
     } else if (event.keyCode === KEY_DOWN) {
       event.preventDefault()
       if (historyIndex < history.length - 1) {
         historyIndex++
-        textarea.current.value = textarea.current.value.slice(0, inputStart.current) + history[historyIndex].modified
+        dispatch(repl.setContents(contents.slice(0, inputStart) + history[historyIndex].modified))
       }
     }
   }
 
-  const onInput = (event) => {
-    history[historyIndex].modified = textarea.current.value.slice(inputStart.current)
+  const onChange = (event) => {
+    history[historyIndex].modified = event.target.value.slice(inputStart)
+    dispatch(repl.setContents(event.target.value))
   }
 
   const onKeyPress = (event) => {
-    if (textarea.current.selectionStart < inputStart.current || event.keyCode === 13) {
+    if (textarea.current.selectionStart < inputStart || event.keyCode === 13) {
       event.preventDefault()
     }
 
     if (event.charCode === KEY_ENTER) {
-      textarea.current.selectionStart = textarea.current.selectionEnd = textarea.current.value.length
-      const code = textarea.current.value.slice(inputStart.current)
+      textarea.current.selectionStart = textarea.current.selectionEnd = contents.length
+      const code = contents.slice(inputStart)
       console.log("Submitting REPL code:", code)
       send({ cmd: "exec", mode: "single", code })
-      inputStart.current = textarea.current.value.length + 1
+      dispatch(repl.setInputStart(contents.length + 1))
       console.log("sent successfully")
       history[history.length - 1].original = history[history.length - 1].modified = history[historyIndex].modified
       history[historyIndex].modified = history[historyIndex].original
@@ -288,12 +269,12 @@ const REPL = ({ setAppendOutput, setRunCode }) => {
   }
 
   const onPasteOrCut = (event) => {
-    if (textarea.current.selectionStart < inputStart.current) {
+    if (textarea.current.selectionStart < inputStart) {
       event.preventDefault()
     }
   }
 
-  return <textarea ref={textarea} spellCheck={false} onKeyDown={onKeyDown} onKeyPress={onKeyPress} onPaste={onPasteOrCut} onCut={onPasteOrCut} onInput={onInput} />
+  return <textarea ref={textarea} spellCheck={false} value={contents} onChange={onChange} onKeyDown={onKeyDown} onKeyPress={onKeyPress} onPaste={onPasteOrCut} onCut={onPasteOrCut} />
 }
 
 const filterResources = (modules, filter) => {
@@ -378,7 +359,8 @@ const Settings = ({ doRefresh }) => {
   </div>
 }
 
-const CodeEditor = ({ runCode }) => {
+const CodeEditor = () => {
+  const dispatch = useDispatch()
   const editor = useRef()
   const onMount = (ed => editor.current = ed)
 
@@ -389,7 +371,7 @@ const CodeEditor = ({ runCode }) => {
       if (content === "") {
         content = editor.current.getModel().getLineContent(selection.positionLineNumber)
       }
-      runCode(content)
+      dispatch(repl.runCode(content))
       ev.preventDefault()
     }
   }
@@ -399,15 +381,15 @@ const CodeEditor = ({ runCode }) => {
 }
 
 
-let socket
 const Nexus = window.Nexus
-const send = (obj) => socket.send(JSON.stringify(obj))
 
 
 const App = () => {
+  const dispatch = useDispatch()
+  const replContents = useSelector(repl.selectContents)
+
   const [resources, setResources] = useState({})
   const [playing, setPlaying] = useState({})
-  const appendOutput = useRef()
   const runCode = useRef()
   const [finished, setFinished] = useState(null)
   const [focus, setFocus] = useState(null)
@@ -421,7 +403,6 @@ const App = () => {
   }
 
   useEffect(() => {
-    socket = new WebSocket("ws://localhost:8765")
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
       if (data.type === "resources") {
@@ -429,15 +410,20 @@ const App = () => {
         console.log(data.resources)
         setResources(data.resources)
       } else if (data.type === "output") {
-        appendOutput.current(data.output)
+        dispatch(repl.appendOutput(data.output))
       } else if (data.type === "finish") {
         setFinished(data.name)
         setFinished(null)
+      } else if (data.type === "project") {
+        console.log(data)
+        // TODO: Restore REPL history.
+        dispatch(repl.setContents(data.repl))
+        dispatch(repl.setInputStart(data.repl.length))
       }
     }
   }, [])
 
-  return (
+  return <Provider store={store}>
     <div className="layout">
       {/* Top bar */}
       <div className="menu">
@@ -452,7 +438,14 @@ const App = () => {
           <span>{focusName}</span>
         </>}
       </div>
-      <div className="toolbar"></div>
+      <div className="project">
+        <div>
+          <button><Icon name="post_add" /></button>
+          <button onClick={() => send({cmd: "openproject"})}><Icon name="folder_open" /></button>
+          <button onClick={() => send({cmd: "saveproject", editor: "TODO", repl: replContents})}><Icon name="save" /></button>
+        </div>
+        <div style={{justifyContent: 'center', display: 'flex', alignItems: 'center'}}>Untitled Project</div>
+      </div>
 
       {/* Left sidebar */}
       <div className="volume">
@@ -470,11 +463,11 @@ const App = () => {
         <CodeEditor runCode={runCode.current} />
       </div>
       <div className="repl">
-        <REPL setAppendOutput={(f) => appendOutput.current = f} setRunCode={(f) => runCode.current = f} />
+        <REPL setRunCode={(f) => runCode.current = f} />
       </div>
     </div>
+  </Provider>
     /* <Settings doRefresh={() => send({ cmd: "refresh" })} /> */
-  )
 }
 
 export default App
