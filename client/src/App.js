@@ -143,12 +143,8 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const ResourceDetails = ({ name, resource, playing, setPlaying, finished }) => {
+const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
   const [expanded, setExpanded] = useState(-1)
-
-  if (playing && finished) {
-    setPlaying(false)
-  }
 
   let tabs = [InspectorTab]
   console.log(resource)
@@ -414,7 +410,6 @@ const App = () => {
   const editor = useRef()
   const [resources, setResources] = useState({})
   const [playing, setPlaying] = useState({})
-  const [finished, setFinished] = useState(null)
   const [focus, setFocus] = useState(null)
 
   const create = () => {
@@ -449,8 +444,7 @@ const App = () => {
       } else if (data.type === "output") {
         dispatch(repl.appendOutput(data.output))
       } else if (data.type === "finish") {
-        setFinished(data.name)
-        setFinished(null)
+        setPlaying({...playing, [data.name]: false})
       } else if (data.type === "project") {
         editor.current.getModel().setValue(data.editor)
         // TODO: Restore REPL history.
@@ -460,7 +454,7 @@ const App = () => {
         console.log(data)
       }
     }
-  }, [])
+  }, [playing])
 
   return <Provider store={store}>
     <div className="layout">
@@ -489,7 +483,7 @@ const App = () => {
       <ResourcePane resources={resources} focus={focus} setFocus={setFocus} playing={playing} setPlaying={setPlaying} />
       <div className="details">
         {focus !== null &&
-        <ResourceDetails name={focus} resource={focusResource} finished={focus === finished}
+        <ResourceDetails name={focus} resource={focusResource}
                          playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
       </div>
       <div className="editor">
