@@ -144,14 +144,16 @@ const tabMap = {
 }
 
 const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
-  const [expanded, setExpanded] = useState(-1)
+  const [_expanded, setExpanded] = useState(-1)
 
   let tabs = [InspectorTab]
-  console.log(resource)
   if (tabMap[resource.name] !== undefined) {
     tabs.push(tabMap[resource.name])
   }
   tabs.push(HelpTab)
+  
+  // Make sure this stays in-bounds when switching between resources.
+  const expanded = Math.min(_expanded, tabs.length - 1)
 
   return (
     <div className="resource-details">
