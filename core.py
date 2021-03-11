@@ -53,14 +53,22 @@ def make_namer(fn):
         return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
     return closure
 
-def make_inspector(fn):
+# If `json` is a string, indicate a single parameter that should be sent to the assistant.
+# If `json` is any other iterable, indicate multiple parameters instead (sent in an object).
+def make_inspector(fn, json=None):
     def closure(*args, **kwargs):
         ba = inspect.signature(fn).bind(*args, **kwargs)
         ba.apply_defaults()
-        return {
+        d = {
             "name": fn.__name__,
             "parameters": ba.arguments,
         }
+        if json is not None:
+            if isinstance(json, str):
+                d["json"] = ba.arguments[json]
+            else:
+                d["json"] = {param: ba.arguments[param] for param in json}
+        return d
     return closure
 
 def register_stream(f, **kwargs):
@@ -74,11 +82,11 @@ def register_stream(f, **kwargs):
 # Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
 # Assumes the decorated function is lazily recursive.
 # TODO: merge with @stream?
-def raw_stream(f=None, namer=None, inspector=None, register=True, **kwargs):
+def raw_stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
     def wrapper(f):
         nonlocal namer, inspector
         namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f)
+        inspector = inspector or make_inspector(f, json=json)
         if register:
             register_stream(f, **kwargs)
         return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
@@ -88,11 +96,11 @@ def raw_stream(f=None, namer=None, inspector=None, register=True, **kwargs):
 
 # This is for naming streams that already return other streams (rather than beng lazily recursive).
 # NOTE: The NamedStream outer layer is only present at the start. Wrapping the entire stream creates excessive overhead.
-def stream(f=None, namer=None, inspector=None, register=True, **kwargs):
+def stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
     def wrapper(f):
         nonlocal namer, inspector
         namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f)
+        inspector = inspector or make_inspector(f, json=json)
         if register:
             register_stream(f, **kwargs)
         def inner(*args, **kwargs):

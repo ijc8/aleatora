@@ -73,7 +73,7 @@ HelpTab.icon = "help_outline"
 const EnvelopeTab = ({ name, resource }) => {
   const outer = useRef()
   const env = useRef()
-  const points = resource.parameters.points
+  const points = resource.json
   useEffect(() => {
     if (!env.current) {
       const rect = outer.current.getBoundingClientRect()
@@ -115,7 +115,7 @@ const SequenceTab = ({ name, resource }) => {
   }
 
   useEffect(() => {
-    roll.current.sequence = resource.parameters.notes.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
+    roll.current.sequence = resource.json.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
     roll.current.redraw()
   })
 
@@ -131,7 +131,7 @@ const SpeechTab = ({ name, resource }) => {
       send({ cmd: "save", type: "speech", name, payload: textbox.current.value })
     }
   }
-  return <textarea ref={textbox} className="speech" type="text" defaultValue={resource.parameters.text} onKeyPress={onKeyPress} />
+  return <textarea ref={textbox} className="speech" type="text" defaultValue={resource.json} onKeyPress={onKeyPress} />
 }
 
 SpeechTab.icon = "chat"
@@ -178,7 +178,7 @@ const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
         }}>
           <Icon name="stop" />
         </button>
-        <div className="flex-spacer">Maybe seek controls go here?</div>
+        <div className="flex-spacer">{/* Maybe seek controls go here? */}</div>
         {tabs.map((tab, i) =>
           <button key={i}
                   className={"resource-control " + (expanded === i ? 'punched' : '')}

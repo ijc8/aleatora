@@ -3,10 +3,11 @@ import math
 import inspect
 import json
 import os
+import pickle
 import reprlib
 import types
 
-import cloudpickle as pickle
+import cloudpickle
 import websockets
 
 from core import *
@@ -84,7 +85,8 @@ class Envelope(Stream):
     def inspect(self):
         return {
             "name": "envelope",
-            "parameters": {"points": self.points}
+            "parameters": {"points": self.points},
+            "json": self.points,
         }
 
 # Somewhere between basic_sequencer and the MIDI instruments.
@@ -113,7 +115,8 @@ class Sequence(Stream):
     def inspect(self):
         return {
             "name": "sequence",
-            "parameters": {"notes": self.notes}
+            "parameters": {"notes": self.notes},
+            "json": self.notes,
         }
 
 
@@ -132,15 +135,17 @@ type_map = {'envelope': make_envelope, 'sequence': make_sequence, 'speech': spee
 
 def load(resource_name):
     with open(f'resources/{resource_name}.pkl', 'rb') as f:
-        resource = pickle.load(f)
+        resource = cloudpickle.load(f)
         resource_map[resource] = resource_name
         return resource
 
 def save(resource, resource_name):
+    if resource_name.startswith('__main__.'):
+        resource_name = resource_name[len('__main__'):]
     if not os.path.isdir('resources'):
         os.mkdir('resources')
     with open(f'resources/{resource_name}.pkl', 'wb') as f:
-        pickle.dump(resource, f)
+        cloudpickle.dump(resource, f)
 
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
@@ -287,9 +292,11 @@ async def serve(websocket, path):
             elif cmd == 'rewind':
                 manager.rewind(data['name'])
             elif cmd == 'save':
+                name = data['name']
                 resource = type_map[data['type']](data['payload'])
-                resource_name = resource_map.get(get_resource(name), data['name'])
-                globals()[data['name']] = resource
+                resource_name = resource_map.get(get_resource(name), name)
+                module, name = name.split('.')
+                sys.modules[module].__dict__[name] = resource
                 save(resource, resource_name)
                 break
             elif cmd == 'openproject':

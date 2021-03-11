@@ -7,7 +7,7 @@ from scipy import signal
 from core import *
 from audio import *
 
-@stream
+@stream(json='text')
 def speech(text, lang='en', slow=False, tld='com'):
     mp3_fp = BytesIO()
     tts = gTTS(text, lang=lang, slow=slow, tld=tld)
