@@ -301,9 +301,11 @@ async def serve(websocket, path):
                 break
             elif cmd == 'openproject':
                 try:
-                    with open(f"{data['name']}.pkl", 'rb') as f:
-                        project = pickle.load(f)
-                    await websocket.send(json.dumps({'type': 'project', 'editor': project['editor'], 'repl': project['repl']}))
+                    with open(f"projects/{data['name']}/main.py", 'r') as f:
+                        editor = f.read()
+                    with open(f"projects/{data['name']}/repl.txt", 'r') as f:
+                        repl = f.read()
+                    await websocket.send(json.dumps({'type': 'project', 'editor': editor, 'repl': repl}))
                 except Exception as e:
                     print(repr(e))
                     await websocket.send(json.dumps({'type': 'error', 'error': repr(e)}))
@@ -313,13 +315,12 @@ async def serve(websocket, path):
                 # The difficulty is in separating the user's stuff from the rest of the runtime.
                 # (We don't want to try to pickle, for example, the sockets used by this server.)
                 # I made one attempt by using exec() with locals=user_namespace, but this came with its own problems.
-                project = {
-                    'editor': data['editor'],
-                    'repl': data['repl'],
-                }
                 try:
-                    with open(f"{data['name']}.pkl", 'wb') as f:
-                        pickle.dump(project, f)
+                    os.makedirs(f"projects/{data['name']}", exist_ok=True)
+                    with open(f"projects/{data['name']}/main.py", 'w') as f:
+                        f.write(data['editor'])
+                    with open(f"projects/{data['name']}/repl.txt", 'w') as f:
+                        f.write(data['repl'])
                 except Exception as e:
                     print(repr(e))
                     await websocket.send(json.dumps({'type': 'error', 'error': repr(e)}))
