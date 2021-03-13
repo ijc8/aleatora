@@ -1,3 +1,6 @@
 *.wav
 *venv/
 __pycache__/
+snd/
+FauxDot/
+*.pkl
