@@ -5,7 +5,6 @@ import numpy as np
 from scipy import signal
 
 from core import *
-from audio import *
 
 @stream(json='text')
 def speech(text, lang='en', slow=False, tld='com'):
@@ -18,4 +17,5 @@ def speech(text, lang='en', slow=False, tld='com'):
     return to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
 
 if __name__ == '__main__':
-    run(speech("Hello world!"))
+    import audio
+    audio.run(speech("Hello world!"))

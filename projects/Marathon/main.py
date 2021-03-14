@@ -91,3 +91,10 @@ p3 = stutter(resample(cycle(d), const(1.2)), 0.075, 3)
 p4 = resample(cycle(s4), const(1.2))
 
 bass = aa_tri(m2f(36)) # aa_saw(m2f(36))/8
+
+b2 = modpan(b, (osc(0.1)+1)/2)
+
+def load_sample(filename):
+    return to_stream(wav.load_mono(filename))
+
+kick = load_sample("snd/x/lower/0_kick_drum.wav")

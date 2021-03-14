@@ -829,3 +829,78 @@ def log_stream(print_period=1):
             print("Log:", x)
         return 0
     return count().map(maybe_print)
+
+
+# Helper function to reduce boilerplate in the class definition below.
+def make_frame_op(op, reversed=False):
+    if reversed:
+        def fn(self, other):
+            if isinstance(other, frame):
+                return frame(map(op, other, self))
+            return frame(op(other, x) for x in self)
+        return fn
+    def fn(self, other):
+        if isinstance(other, frame):
+            return frame(map(op, self, other))
+        return frame(op(x, other) for x in self)
+    return fn
+
+# Container for multiple values. Operators are overloaded for element-wise computation.
+# Created with samples in mind (to make it easier to work with stereo and beyond), but can be used with any types.
+# (e.g., frame('hell', 'good') + frame('o', 'bye') == frame('hello', 'goodbye'))
+# NOTE: Could make this faster for the stereo case by specializing for the 2-channel frame.
+class frame(tuple):
+    __add__ = make_frame_op(operator.add)
+    __radd__ = make_frame_op(operator.add, reversed=True)
+    __sub__ = make_frame_op(operator.sub)
+    __rsub__ = make_frame_op(operator.sub, reversed=True)
+    __mul__ = make_frame_op(operator.mul)
+    __rmul__ = make_frame_op(operator.mul, reversed=True)
+    __matmul__ = make_frame_op(operator.matmul)
+    __rmatmul__ = make_frame_op(operator.matmul, reversed=True)
+    __truediv__ = make_frame_op(operator.truediv)
+    __rtruediv__ = make_frame_op(operator.truediv, reversed=True)
+    __floordiv__ = make_frame_op(operator.floordiv)
+    __rfloordiv__ = make_frame_op(operator.floordiv, reversed=True)
+    __mod__ = make_frame_op(operator.mod)
+    __rmod__ = make_frame_op(operator.mod, reversed=True)
+    __pow__ = make_frame_op(operator.pow)
+    __rpow__ = make_frame_op(operator.pow, reversed=True)
+    __lshift__ = make_frame_op(operator.lshift)
+    __rlshift__ = make_frame_op(operator.lshift, reversed=True)
+    __rshift__ = make_frame_op(operator.rshift)
+    __rrshift__ = make_frame_op(operator.rshift, reversed=True)
+    __and__ = make_frame_op(operator.and_)
+    __rand__ = make_frame_op(operator.and_, reversed=True)
+    __xor__ = make_frame_op(operator.xor)
+    __rxor__ = make_frame_op(operator.xor, reversed=True)
+    __or__ = make_frame_op(operator.or_)
+    __ror__ = make_frame_op(operator.or_, reversed=True)
+    def __neg__(self): return frame(map(operator.neg, self))
+    def __pos__(self): return frame(map(operator.pos, self))
+    def __abs__(self): return frame(map(operator.abs, self))
+    def __invert__(self): return frame(map(operator.invert, self))
+
+    def __new__(cls, *args):
+        if len(args) > 1:
+            # Multiple arguments: put them all in a frame.
+            return tuple.__new__(cls, args)
+        elif args:
+            # One argument: assume it's a sequence that should be converted to a frame.
+            return tuple.__new__(cls, args[0])
+        else:
+            return tuple.__new__(cls)
+
+    def __repr__(self):
+        return f"frame{super().__repr__()}"
+
+    def __str__(self):
+        return f"frame{super().__str__()}"
+
+@stream
+def pan(stream, pos):
+    return stream.map(lambda x: frame(x * (1 - pos), x * pos))
+
+@stream
+def modpan(stream, pos_stream):
+    return ZipStream((stream, pos_stream)).map(lambda p: frame(p[0] * (1 - p[1]), p[0] * p[1]))

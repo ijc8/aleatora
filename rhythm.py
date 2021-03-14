@@ -1,5 +1,4 @@
 from core import *
-from audio import *
 import wav
 
 # snare = list_to_stream(wav.load_mono('/home/ian/samples/snare.wav'))

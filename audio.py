@@ -106,7 +106,7 @@ def play(*streams):
         channels = len(streams)
 
     _samples = iter(stream)
-    if not _stream or _channels != channels:
+    if not _stream or _channels < channels:
         setup(channels=channels)
 
 

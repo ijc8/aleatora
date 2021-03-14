@@ -210,8 +210,8 @@ def get_resources():
     queue = [('__main__', sys.modules['__main__']), ('core', sys.modules['core'])]
     while queue:
         module_name, module = queue.pop()
-        if module_name in core.stream_registry:
-            for var_name, value in core.stream_registry[module_name].items():
+        if module_name in stream_registry:
+            for var_name, value in stream_registry[module_name].items():
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
                 resources[value.__module__][var_name] = value
@@ -234,9 +234,15 @@ class EventThreadSafe(asyncio.Event):
     def set(self):
         self._loop.call_soon_threadsafe(super().set)
 
-def play(stream=None):
-    if stream:
-        manager.play(None, stream)
+def play(*streams):
+    # Mirrors the behavior of audio.play() with different numbers of arguments.
+    # `None` is used as a special key indicating whatever stream the user started by calling `play()`.
+    # (As opposed to clicking a play button in the assistant.)
+    if len(streams) == 1:
+        manager.play(None, streams[0])
+    elif streams:
+        # TODO: Introduce FrameStream? or multichannel()?
+        manager.play(None, ZipStream(streams).map(frame))
     else:
         manager.stop(None)
 
@@ -249,6 +255,7 @@ async def serve(websocket, path):
 
     global manager
     manager = StreamManager(finish_callback)
+    audio.setup(channels=2)
     audio.play(manager)
 
     async def wait_for_finish():
