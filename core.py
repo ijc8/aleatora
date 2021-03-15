@@ -422,6 +422,12 @@ def cycle(stream):
 def count(start=0):
     return lambda: (start, count(start+1))
 
+@raw_stream
+def mod(modulus, start=0):
+    # We do the mod up-front rather than in the recursive call, in case the user passed start >= modulus.
+    result = start % modulus
+    return lambda: (result, mod(modulus, result + 1))
+
 # @raw_stream
 # def const(value):
 #     def closure():
