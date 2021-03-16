@@ -2002,3 +2002,40 @@ def foo():
     return 3
 
 # To be continued... passing locals (including arguments), supporting for, continue, break...
+
+# 3/15/2021
+
+# defined input_stream in audio.py; quick guitar effects
+
+from core import *
+from audio import *
+
+setup(device=12, input=True)
+
+play(input_stream)
+
+play(input_stream*10)
+play(input_stream.map(lambda x: max(-1, min(1, x*10))/10))
+play(input_stream.map(lambda x: max(-1, min(1, x*100))/100))
+# TODO: add .zip() to Stream, already! and allow zoh to take time in seconds (float)
+play(ZipStream((input_stream, zoh(rand*20, 22050))).map(lambda p: max(-1, min(1, p[0]*p[1]))/p[1]))
+play(ZipStream((input_stream, (osc(8)+1)*50+5)).map(lambda p: max(-1, min(1, p[0]*p[1]))/p[1]))
+
+play(filters.bpf(input_stream, osc(7)*300 + 700, 4))
+play(filters.bpf(input_stream, 1000 + rand*1000, 4))
+play(filters.bpf(input_stream, fm_osc(zoh(rand*7, 22050))*300 + 700, 4))
+
+play(input_stream[:5.0])
+# Ah, here's an issue with the current way of doing it: freezing doesn't work!
+play(frozen('riff', input_stream[:5.0]))
+# Could maybe rework it later.
+# In the meantime, need something to hitch a ride, listen along the input_stream, like this:
+riff = []
+play(input_stream[:5.0].map(lambda x: riff.append(x) or x))
+riff = to_stream(riff)
+play(cycle(riff))
+# memoize() works too:
+riff = memoize(input_stream[:5.0])
+play(cycle(riff))
+# Boom, a (very) basic looper:
+play(cycle(riff) + input_stream)

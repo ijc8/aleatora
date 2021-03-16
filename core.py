@@ -910,3 +910,16 @@ def pan(stream, pos):
 @stream
 def modpan(stream, pos_stream):
     return ZipStream((stream, pos_stream)).map(lambda p: frame(p[0] * (1 - p[1]), p[0] * p[1]))
+
+@raw_stream
+def zoh(stream, hold_time, prev_value=None, pos=0):
+    # NOTE: hold_time must be an int
+    def closure():
+        if pos < 0:
+            return (prev_value, zoh(stream, hold_time, prev_value, pos + 1))
+        result = stream()
+        if isinstance(result, Return):
+            return result
+        value, next_stream = result
+        return (value, zoh(next_stream, hold_time, value, pos - hold_time + 1))
+    return closure
