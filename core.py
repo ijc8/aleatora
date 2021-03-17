@@ -923,3 +923,6 @@ def zoh(stream, hold_time, prev_value=None, pos=0):
         value, next_stream = result
         return (value, zoh(next_stream, hold_time, value, pos - hold_time + 1))
     return closure
+
+def repeat(stream, n):
+    return ConcatStream([stream] * n)

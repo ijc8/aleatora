@@ -134,9 +134,11 @@ def play(*streams):
         stream = core.ZipStream(streams)
         channels = len(streams)
 
-    _samples = iter(stream)
-    if not _stream or _channels < channels:
+    if not _stream:
         setup(channels=channels)
+    elif _channels < channels:
+        setup(device=_stream.device, channels=channels, input=isinstance(_stream, sd.InputStream))
+    _samples = iter(stream)
 
 
 # Add another layer to playback without resetting the position of existing layers.

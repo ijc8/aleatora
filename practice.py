@@ -2039,3 +2039,22 @@ riff = memoize(input_stream[:5.0])
 play(cycle(riff))
 # Boom, a (very) basic looper:
 play(cycle(riff) + input_stream)
+
+# 3/16/2021
+
+# What if we want a count-in?
+click = cycle((cons(1, empty) >> silence)[:0.5])
+play(click[:2.0] >> input_stream)
+# Count-in + click?
+play(bind(click[:2.0], lambda rest: rest + input_stream))
+# Vocal count in?
+from FauxDot import beat
+play(beat("1234", bpm=60)[:2.0] >> input_stream)
+# Vocal count-in + better click?
+play(beat("1234", bpm=60)[:2.0] >> (input_stream + beat("+", bpm=60)))
+# Aside: kinda funky
+play(beat("x-o-xo-"))
+
+# Another possibility: "composing in" live/improvised parts
+import wav
+play(to_stream(wav.load_mono("samples/a.wav")) >> input_stream[:2.0] >> to_stream(wav.load_mono("samples/b.wav")))
