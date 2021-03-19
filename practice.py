@@ -2058,3 +2058,168 @@ play(beat("x-o-xo-"))
 # Another possibility: "composing in" live/improvised parts
 import wav
 play(to_stream(wav.load_mono("samples/a.wav")) >> input_stream[:2.0] >> to_stream(wav.load_mono("samples/b.wav")))
+
+
+# 3/18/21
+
+# The sequel
+
+import inspect
+import ast
+import astor
+
+def make_cfg(fn):
+    id = -1
+    def make_name(id):
+        return ast.Name(id=f'_{hash(fn):x}_{id:x}', ctx=ast.Load())
+
+    # TODO: Only transform a branch or loop if it has a yield somewhere in its subtree.
+    def build_cfg(statements, successor=None):
+        # print('build_cfg', statements, successor)
+        nonlocal id
+        id += 1
+        cfg = {'id': id, 'name': make_name(id), 'children': []}
+        stmts = []
+        for i, statement in enumerate(statements):
+            # print(astor.dump_tree(statement))
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('yield'), statement.value.value, make_name(id+1)], ctx=ast.Load())))
+                # Break off into next CFG.
+                cfg['statements'] = stmts
+                cfg['children'] = [build_cfg(statements[i+1:], successor)]
+                return cfg
+            elif isinstance(statement, ast.Return):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), statement.value], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            elif isinstance(statement, ast.If):
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, successor)
+                else_cfg = build_cfg(statement.orelse, successor)
+                stmts.append(ast.If(test=statement.test,
+                                    body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id'])], ctx=ast.Load()))],
+                                    orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id'])], ctx=ast.Load()))]))
+                cfg['statements'] = stmts
+                cfg['children'] = [then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.While):
+                # TODO: Handle break, continue.
+                cond_cfg = build_cfg([], None)
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                then_successor = make_name(cond_cfg['id'])
+                else_successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, then_successor)
+                else_cfg = build_cfg(statement.orelse, else_successor)
+                cond_cfg['statements'] = [ast.If(test=statement.test,
+                                                 body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id'])], ctx=ast.Load()))],
+                                                 orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id'])], ctx=ast.Load()))])]
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), then_successor], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                cfg['children'] = [cond_cfg, then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.For):
+                # TODO
+                pass
+            else:
+                stmts.append(statement)
+        if successor:
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), successor], ctx=ast.Load())))
+        else:
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), ast.NameConstant(value=None)], ctx=ast.Load())))
+        cfg['statements'] = stmts
+        return cfg
+    return build_cfg(fn.body)
+
+def print_cfg(cfg):
+    print("CFG:", cfg['id'])
+    for statement in cfg['statements']:
+        print('    ' + astor.dump_tree(statement))
+    for child in cfg['children']:
+        print_cfg(child)
+
+def finish_conversion(cfg):
+    defs = []
+    def dfs(cfg):
+        args = ast.arguments(args=[], kwonlyargs=[], kw_defaults=[], defaults=[])
+        defs.append(ast.FunctionDef(name=cfg['name'].id, args=args,
+                                    body=cfg['statements'], decorator_list=[]))
+        for child in cfg['children']:
+            dfs(child)
+    dfs(cfg)
+    m = ast.Module(defs)
+    ast.fix_missing_locations(m)
+    return m
+
+def test_decorator(f):
+    tree = ast.parse(inspect.getsource(f))
+    fn = tree.body[0]
+    # print(astor.dump_tree(fn))
+    # for statement in fn.body:
+    #     if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+    #         print("Yield:", astor.dump_tree(statement.value.value))
+    #     else:
+    #         print(astor.dump_tree(statement))
+    cfg = make_cfg(fn)
+    print_cfg(cfg)
+
+from core import *
+class GeneratorStream(Stream):
+    def __init__(self, generated_fn):
+        self.generated_fn = generated_fn
+    
+    def __call__(self):
+        fn = self.generated_fn
+        while True:
+            inst, *args = fn()
+            if inst == 'bounce':
+                fn = args[0]
+            else:
+                break
+        if inst == 'yield':
+            return (args[0], GeneratorStream(args[1]))
+        elif inst == 'return':
+            return Return(args[0])
+
+def generator_to_stream(f):
+    tree = ast.parse(inspect.getsource(f))
+    fn = tree.body[0]
+    cfg = make_cfg(fn)
+    converted = finish_conversion(cfg)
+    for defn in converted.body:
+        print(astor.dump_tree(defn))
+    global c
+    exec(compile(converted, f.__code__.co_filename, 'exec'), globals())
+    return GeneratorStream(globals()[cfg['name'].id])
+
+import random
+
+@generator_to_stream
+def foo():
+    yield 1
+    if random.random() > 0.5:
+        yield 2
+        print("yay")
+        yield 3
+    else:
+        yield 4
+        print("nay")
+        yield 5
+    print("almost done")
+    yield 6
+    print("done")
+    return 7
+
+@generator_to_stream
+def grand():
+    while True:
+        yield random.random()
+
+# Doesn't work yet due to lack of support for locals:
+@generator_to_stream
+def bar():
+    i = 0
+    while i < 3:
+        print(i)
+        yield i
+        i += 1

@@ -55,7 +55,7 @@ def volume(vol=None):
 
 # List devices with sd.query_devices().
 
-def setup(device=12, channels=1, input=False):
+def setup(device=None, channels=1, input=False):
     global _channels, _stream, _samples
     if _stream:
         _cleanup()

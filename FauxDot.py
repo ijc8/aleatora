@@ -4,6 +4,8 @@ import core
 
 from _FoxDot.Patterns import P, Pattern, PGroup, PGroupPrime, PGroupPlus, ParsePlayString
 from _FoxDot.Buffers import Samples
+from _FoxDot.Scale import get_freq_and_midi, Scale
+from _FoxDot.Root import Root
 
 
 def pattern_to_stream(pattern, cycle=True):
@@ -64,17 +66,7 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120):
         return closure
     return _event_stream(degree, dur, sus, delay, amp, bpm)
 
-# @core.raw_stream
-# def sampleplayer_stream(event_stream, time=0):
-#     def closure():
-#         (degree, dur, sus, delay, amp, bpm), next_event_stream = event_stream()
-#         sample = Samples.getBufferFromSymbol(degree).stream
-#         next_time = time + dur * 60/bpm
-#         if amp != 1:
-#             sample *= amp
-#         return ((time, sample), sampleplayer_stream(next_event_stream, next_time))
-#     return closure
-
+# Used for beat(), which is the analog of play().
 def events_to_samples(event_stream):
     def process_event(event):
         # NOTE: Like play(), this ignores `sus`.
@@ -90,21 +82,46 @@ def events_to_samples(event_stream):
         return core.fit(sample, dur)
     return core.lazy_concat(event_stream.map(process_event))
 
-
 # maybe support amplify?
 def beat(pattern, dur=0.5, sus=None, delay=0, sample=0, amp=1, bpm=120):
     if isinstance(pattern, str):
         pattern = ParsePlayString(pattern)
     if sus is None:
         sus = dur
-    # TODO: map characters to samples via Samples.getBufferFromSymbol(char, index).stream
-    # convert each pattern-able arg to a stream
-    # pull from all of them to generate each event
-    # then just concat. ez.
     return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm))
 
-    
-# later, for instruments, handle `scale` and `root`.
+# TODO: maybe settle on this or mido.Message? mido.Message unfortunately doesn't allow float values (true to MIDI).
+# would use namedtuple but it lacks `defaults` in this version of pypy
+class Message:
+    def __init__(self, type, note, velocity=None):
+        self.type = type
+        self.note = note
+        self.velocity = velocity
+# BTW: may want to switch abstraction from one event per sample to a collection of events per sample
+# so e.g. notes can start simultaneously
+# TODO: can root, scale, oct be patterns?
+# Used for regular instruments (everything except play(), e.g. pluck()).
+def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct=5):
+    def closure():
+        event, next_event_stream = event_stream()
+        degree, dur, sus, delay, amp, bpm = event
+        _, pitch = get_freq_and_midi(degree, oct, root, scale)
+        if delay != 0:
+            delay *= 60/bpm
+        dur *= 60/bpm
+        sus *= 60/bpm
+        # TODO: For the moment, we're capping sus at dur - 1 (sample). (does FoxDot allow overlap between notes in a single layer?)
+        sus = min(dur - 1/core.SAMPLE_RATE, sus)
+        noteon = Message(type='note_on', note=pitch, velocity=int(amp*127))
+        noteoff = Message(type='note_off', note=pitch)
+        recur = events_to_messages(next_event_stream, root=root, scale=scale, oct=oct)
+        return (noteon, core.const(None)[:sus] >> core.cons(noteoff, core.const(None)[:dur-sus-1/core.SAMPLE_RATE] >> recur))
+    return closure
+
+# Return an event stream suitable for passing into an instrument.
+def tune(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, root=Root.default, scale=Scale.default, oct=5):
+    return events_to_messages(event_stream(degree, dur=dur, sus=sus, delay=delay, amp=amp, bpm=bpm), root=root, scale=scale, oct=oct)
+
 
 # other things for maybe eventual support: https://foxdot.org/docs/player-effects/
 # most of these should probably translate to stream functions applied to instrumental voices
