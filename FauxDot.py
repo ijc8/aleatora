@@ -1,11 +1,29 @@
 import collections
 
 import core
+import wav
 
-from _FoxDot.Patterns import P, Pattern, PGroup, PGroupPrime, PGroupPlus, ParsePlayString
-from _FoxDot.Buffers import Samples
-from _FoxDot.Scale import get_freq_and_midi, Scale
-from _FoxDot.Root import Root
+from FoxDot import (
+    P, Pattern, PGroup, PGroupPrime, PGroupPlus, ParsePlayString,
+    Root, Scale, get_freq_and_midi, Samples, nil
+)
+
+nil.stream = core.empty
+
+def buffer_read(buffer):
+    data = wav.load(buffer.fn)
+    numChannels = data.shape[1]
+    if numChannels == 1:
+        buffer.stream = core.to_stream(data[:, 0].tolist())
+    else:
+        buffer.stream = core.to_stream([core.frame(x) for x in data.tolist()])
+
+def buffer_free(buffer):
+    # Nothing needs to see here; buffer should get garbage-collected, and so should buffer.stream.
+    pass
+
+Samples.buffer_read = buffer_read
+Samples.buffer_free = buffer_free
 
 
 def pattern_to_stream(pattern, cycle=True):
