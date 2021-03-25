@@ -2223,3 +2223,31 @@ def bar():
         print(i)
         yield i
         i += 1
+
+
+# 3/25/21
+
+# A simpler splitter than core.splitter; like audio.input_stream, this provides a stream which only ever yields the 'current' value.
+def splitter0(in_stream, receiver):
+    current_value = None
+    follower = Stream(lambda: current_value)
+    out_stream = receiver(follower)
+
+    @raw_stream
+    def inner(in_stream, out_stream):
+        def closure():
+            nonlocal current_value
+            result = in_stream()
+            if isinstance(result, Return):
+                current_value = result
+                return out_stream()
+            value, next_in_stream = result
+            current_value = (value, follower)
+            result = out_stream()
+            if isinstance(result, Return):
+                return result
+            value, next_out_stream = result
+            return (value, inner(next_in_stream, next_out_stream))
+        return closure
+    return inner(in_stream, out_stream)
+

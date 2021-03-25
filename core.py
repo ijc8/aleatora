@@ -160,6 +160,12 @@ class Stream:
 
     __radd__ = make_stream_op(operator.add, reversed=True)
 
+    def __sub__(self, other):
+        return self + -other
+    
+    def __rsub__(self, other):
+        return -self + other
+
     # `a * b` means a amplitude-modulated by b (order doesn't matter).
     # I don't know if this has a equivalent in tape, but in electronics terms this is a mixer.
     __mul__ = make_stream_op(operator.mul)
@@ -197,6 +203,37 @@ class Stream:
     @register_stream
     def map(self, fn):
        return MapStream(self, fn)
+    
+    @register_stream
+    def zip(self, *others):
+        return ZipStream((self,) + others)
+
+    @raw_stream
+    def filter(self, predicate):
+        def closure():
+            stream = self
+            while True:
+                result = stream()
+                if isinstance(result, Return):
+                    return result
+                value, stream = result
+                if not predicate(value):
+                    continue
+                return (value, stream.filter(predicate))
+        return closure
+    
+    # Monadic bind.
+    # Like concat, but the second stream is not created until it is needed, and it has access to the return value of the first stream.
+    # This allows for a useful definition of 'split', for example (see the `streaming` library in Haskell).
+    @raw_stream
+    def bind(self, fn):
+        def closure():
+            result = self()
+            if isinstance(result, Return):
+                return fn(result.value)()
+            value, stream = result
+            return (value, stream.bind(fn))
+        return closure
 
     def __str__(self):
         return "Mystery Stream"
@@ -237,7 +274,7 @@ class ConcatStream(Stream):
             }
         }
 
-concat = ConcatStream
+concat = ConcatStream # rename the class?
 
 
 class MixStream(Stream):
@@ -274,6 +311,8 @@ class MixStream(Stream):
                 "separator": "+",
             }
         }
+
+mix = MixStream  # rename the class?
 
 
 class MapStream(Stream):
@@ -442,6 +481,9 @@ def const(value):
 silence = const(0)
 ones = const(1)
 
+# Note: Each memoization cell retains a reference to the next one,
+# so memory usage will grow with the difference between the earliest
+# externally-held cell and the latest evaluated cell.
 @raw_stream
 def memoize(stream):
     called = False
@@ -753,19 +795,6 @@ def normalize(stream):
     peak = np.max(np.abs(a))
     return list_to_stream(a / peak)
 
-
-# TODO: Make this a method of Stream.
-# Monadic bind:
-@raw_stream
-def bind(a, b):
-    def closure():
-        result = a()
-        if isinstance(result, Return):
-            return b(result.value)()
-        value, next_a = result
-        return (value, bind(next_a, b))
-    return closure
-
 def arrange(items):
     if not items:
         return empty
@@ -780,9 +809,9 @@ def arrange(items):
         if end_time:
             stream = stream[:end_time - start_time]
         # Sometimes I really wish Python had `let`...
-        out = (lambda start, stream, prev: (lambda r: bind((r + stream)[:start], prev)))(prev_start_time - start_time, stream, out)
+        out = (lambda start, stream, prev: (lambda r: (r + stream)[:start].bind(prev)))(prev_start_time - start_time, stream, out)
         prev_start_time = start_time
-    return bind(silence[:last_start_time][:prev_start_time], out)
+    return silence[:last_start_time][:prev_start_time].bind(out)
 
 # More new stuff (3/2):
 @raw_stream
@@ -944,3 +973,13 @@ def zoh(stream, hold_time, prev_value=None, pos=0):
 
 def repeat(stream, n):
     return ConcatStream([stream] * n)
+
+# This is a function that can split a stream into multiple streams that will yield the same values.
+# The tricky part is ensuring that we don't keep around excess memoized results.
+# That is why this is wrapped in a lambda: consider the memory implications of the simpler definition,
+# `splitter = lambda stream, receiver: receiver(memoize(stream))`
+# The problem is that (assuming the result of splitter is stored) it retains a reference to the head of the memoize chain,
+# which will keep the entire memoize chain in memory until that outer reference expires.
+@stream
+def splitter(stream, receiver):
+    return lambda: receiver(memoize(stream))()

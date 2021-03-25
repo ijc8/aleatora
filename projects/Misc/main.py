@@ -19,20 +19,6 @@ v1 = w(lambda: tune(p1, oct=4, cycle=False))
 play(mono_instrument(cycle(w(lambda: v0))) + mono_instrument(cycle(w(lambda: v1))))
 play()
 
-class Wavetable(Stream):
-    def __init__(self, list, rate, index=0):
-        self.list = list
-        self.rate = rate
-        self.index = index % len(list)
-    
-    def __call__(self):
-        index = int(self.index)
-        frac = self.index - index
-        start = self.list[index]
-        end = self.list[(index + 1) % len(self.list)]
-        interp = start + (end - start) * frac
-        return (interp, Wavetable(self.list, self.rate, self.index + self.rate))
-
 preamble_text = """
 Whereas recognition of the inherent dignity and of the equal and inalienable rights of all members of the human family is the foundation of freedom, justice and peace in the world,
 Whereas disregard and contempt for human rights have resulted in barbarous acts which have outraged the conscience of mankind, and the advent of a world in which human beings shall enjoy freedom of speech and belief and freedom from fear and want has been proclaimed as the highest aspiration of the common people,
@@ -58,29 +44,6 @@ play(tutti)
 
 play(filters.bpf(tutti, osc(0.1)*1000+1100, 2.0))
 
-def splitter(in_stream, receiver):
-    current_value = None
-    follower = Stream(lambda: current_value)
-    out_stream = receiver(follower)
-
-    @raw_stream
-    def inner(in_stream, out_stream):
-        def closure():
-            nonlocal current_value
-            result = in_stream()
-            if isinstance(result, Return):
-                current_value = result
-                return out_stream()
-            value, next_in_stream = result
-            current_value = (value, follower)
-            result = out_stream()
-            if isinstance(result, Return):
-                return result
-            value, next_out_stream = result
-            return (value, inner(next_in_stream, next_out_stream))
-        return closure
-    return inner(in_stream, out_stream)
-
 play(splitter(rand, lambda p: (
     filters.bpf(p, const(440), 1000.0) +
     filters.bpf(p, const(550), 1000.0) +
@@ -101,16 +64,16 @@ s = splitter(tutti, lambda p: (
 
 fs = frozen("splitter", s[:30.0])
 
-# Or, instead of splitter:
-m = memoize(tutti)
-play(
-    filters.bpf(m, const(440), 50.0) +
-    filters.bpf(m, k(lambda: middle), 50.0) +
-    filters.bpf(m, const(660), 50.0)
-)
-
 f = zoh(rand, 44100) * 1000
-oh = (filters.bpf(m, f, 50.0) +
-      filters.bpf(m, f, 50.0) +
-      filters.bpf(m, f, 50.0))
-foh = frozen("oh", oh[:120.0], redo=True)
+oh = splitter(tutti, lambda p: (
+    filters.bpf(p, f, 50.0) +
+    filters.bpf(p, f, 50.0) +
+    filters.bpf(p, f, 50.0)
+))
+foh = frozen("oh", oh[:120.0])
+
+play(filters.comb(preamble, 0.95, -400))
+
+play(var_comb(preamble, 0.8, (osc(1)*80 + -100), 180))
+
+play()
