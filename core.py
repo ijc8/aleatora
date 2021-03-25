@@ -638,6 +638,21 @@ def tri(freq):
 rand = NamedStream("rand", lambda: (random.random(), rand))
 
 
+class Wavetable(Stream):
+    def __init__(self, list, rate, index=0):
+        self.list = list
+        self.rate = rate
+        self.index = index % len(list)
+    
+    def __call__(self):
+        index = int(self.index)
+        frac = self.index - index
+        start = self.list[index]
+        end = self.list[(index + 1) % len(self.list)]
+        interp = start + (end - start) * frac
+        return (interp, Wavetable(self.list, self.rate, self.index + self.rate))
+
+
 # Stream-controlled resampler. Think varispeed.
 # TODO: Debug. Compared with Wavetable, which interpolates the same way, the results here are slightly off.
 @raw_stream
@@ -815,14 +830,17 @@ def w(f):
 # If the file already exists, load it instead of running the stream.
 # Like freeze(), assumes `stream` is finite.
 @stream
-def frozen(name, stream):
+def frozen(name, stream, redo=False):
     # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
     # (Hashes differently between session, if referenced objects are created in the session.)
-    try:
-        with open(f'frozen_{name}.pkl', 'rb') as f:
-            return pickle.load(f)
-    except FileNotFoundError:
-        # File doesn't exist: stream hasn't been frozen before.
+    if not redo:
+        try:
+            with open(f'frozen_{name}.pkl', 'rb') as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+            # File doesn't exist: stream hasn't been frozen before.
+            redo = True
+    if redo:
         stream = ListStream(list(stream))
         with open(f'frozen_{name}.pkl', 'wb') as f:
             pickle.dump(stream, f)

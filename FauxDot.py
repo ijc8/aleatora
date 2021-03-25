@@ -45,10 +45,10 @@ def patternish_to_stream(patternish, cycle=True):
 
 # There are other things that can be patternish, like `root` or `sample`, but this just deals timing.
 # (degree is included because it may contain PGroups that affect subdivision timing.)
-def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120):
+def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, cycle=True):
     if sus is None:
         sus = dur
-    degree = patternish_to_stream(degree)
+    degree = patternish_to_stream(degree, cycle=cycle)
     dur = patternish_to_stream(dur)
     sus = patternish_to_stream(sus)
     delay = patternish_to_stream(delay)
@@ -121,7 +121,10 @@ class Message:
 # Used for regular instruments (everything except play(), e.g. pluck()).
 def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct=5):
     def closure():
-        event, next_event_stream = event_stream()
+        result = event_stream()
+        if isinstance(result, core.Return):
+            return result
+        event, next_event_stream = result
         degree, dur, sus, delay, amp, bpm = event
         _, pitch = get_freq_and_midi(degree, oct, root, scale)
         if delay != 0:
@@ -137,8 +140,8 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
     return closure
 
 # Return an event stream suitable for passing into an instrument.
-def tune(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, root=Root.default, scale=Scale.default, oct=5):
-    return events_to_messages(event_stream(degree, dur=dur, sus=sus, delay=delay, amp=amp, bpm=bpm), root=root, scale=scale, oct=oct)
+def tune(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, root=Root.default, scale=Scale.default, oct=5, cycle=True):
+    return events_to_messages(event_stream(degree, dur=dur, sus=sus, delay=delay, amp=amp, bpm=bpm, cycle=cycle), root=root, scale=scale, oct=oct)
 
 
 # other things for maybe eventual support: https://foxdot.org/docs/player-effects/

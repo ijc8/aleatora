@@ -440,7 +440,6 @@ const App = () => {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
       if (data.type === "resources") {
-        // TODO: s/streams/resources/g
         console.log(data.resources)
         setResources(data.resources)
       } else if (data.type === "output") {
