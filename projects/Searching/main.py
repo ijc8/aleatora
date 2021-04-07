@@ -72,7 +72,7 @@ def layer(date=datetime(2020,1,1)):
 #     return out
 
 @stream
-def layer2(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
     t = 0
     items = []
     for days in range((end_date - start_date).days):
@@ -89,23 +89,26 @@ def layer2(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
     return arrange(items)
 
 random.seed(0)
-l0 = layer2(0.5)
-l1 = layer2(0.75)
-l2 = layer2(1)
-l3 = layer2(1.25)
-l4 = layer2(1.5)
-layers = [l0, l1, l2, l3, l4]
-@raw_stream
-def osc(freq, phase=0):
-    return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
-play()
-# c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
-c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
+# layers = [layer(1.2), layer(1.1), layer(1), layer(.9), layer(1), layer(1.1), layer(1.2)]
+layers = [
+    layer(.6*(5/4)**3),
+    layer(.6*(5/4)**2),
+    layer(.6*(5/4)**1),
+    layer(.6*(5/4)**0),
+    layer(.6*(5/4)**1),
+    layer(.6*(5/4)**2),
+    layer(.6*(5/4)**3)
+]
+# @raw_stream
+# def osc(freq, phase=0):
+#     return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
+c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
+# c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
 
 f = freeze(c[:10.0])
 
 import wav
-wav.save(c, "search4.wav", verbose=True)
+wav.save(c, "search6.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
