@@ -89,10 +89,12 @@ l0 = layer2()
 l1 = layer2()
 l2 = layer2()
 l3 = layer2()
-c = (l0 + l1 + l2 + l3)/4
+l4 = layer2()
+layers = [l0, l1, l2, l3, l4]
+c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/4
 
 import wav
-wav.save(c, "search_sample.wav", verbose=True)
+wav.save(c, "search_stereo.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
