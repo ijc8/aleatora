@@ -826,7 +826,6 @@ def arrange(items):
     out = lambda r: r + last_stream
     prev_start_time = last_start_time
     for start_time, end_time, stream in items[1:]:
-        print(last_start_time, start_time, end_time)
         if end_time:
             stream = stream[:end_time - start_time]
         # Sometimes I really wish Python had `let`...
