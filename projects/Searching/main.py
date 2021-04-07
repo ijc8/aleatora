@@ -72,7 +72,7 @@ def layer(date=datetime(2020,1,1)):
 #     return out
 
 @stream
-def layer2(start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+def layer2(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
     t = 0
     items = []
     for days in range((end_date - start_date).days):
@@ -80,21 +80,32 @@ def layer2(start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
         term = get_term(date)
         if term:
             print(date, term)
-            fn = (lambda d, s: w(lambda: print(d) or s))(date, speech_cache[term])
+            clip = speech_cache[term]
+            if rate != 1:
+                clip = resample(clip, const(rate))
+            fn = (lambda d, s: w(lambda: print(d) or s))(date, clip)
             items.append((t, None, fn))
-        t += 0.5
+        t += 0.4
     return arrange(items)
 
-l0 = layer2()
-l1 = layer2()
-l2 = layer2()
-l3 = layer2()
-l4 = layer2()
+random.seed(0)
+l0 = layer2(0.5)
+l1 = layer2(0.75)
+l2 = layer2(1)
+l3 = layer2(1.25)
+l4 = layer2(1.5)
 layers = [l0, l1, l2, l3, l4]
-c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/4
+@raw_stream
+def osc(freq, phase=0):
+    return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
+play()
+# c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
+c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
+
+f = freeze(c[:10.0])
 
 import wav
-wav.save(c, "search_stereo.wav", verbose=True)
+wav.save(c, "search4.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
