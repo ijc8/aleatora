@@ -52,8 +52,8 @@ def volume(vol=None):
         _volume = vol
     return _volume
 
-
-# List devices with sd.query_devices().
+# For convenience, expose this:
+query_devices = sd.query_devices
 
 def setup(device=None, channels=1, input=False):
     global _channels, _stream, _samples

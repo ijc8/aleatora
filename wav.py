@@ -45,7 +45,7 @@ def save(comp, filename, chunk_size=16384, verbose=False):
     while i == chunk_size - 1:
         for i, sample in zip(range(chunk_size), siter):
             chunk[i] = sample
-        w.writeframes((chunk[:i] * (2**15-1)).astype(np.int16))
+        w.writeframes((chunk[:i+1] * (2**15-1)).astype(np.int16))
         if verbose:
             t += (i + 1)
             print(f'{t} ({t/core.SAMPLE_RATE}) - real time: {time.time() - start_time}')

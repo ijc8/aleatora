@@ -514,6 +514,8 @@ def iter_to_stream(iter):
 empty = Stream(lambda: Return())
 
 class ListStream(Stream):
+    "A finite stream of precomputed values."
+
     def __init__(self, list, index=0):
         self.list = list
         self.index = index
@@ -533,6 +535,28 @@ class ListStream(Stream):
         return {
             "name": "list",
             "parameters": {"list": self.list, "index": self.index}
+        }
+
+class FrozenStream(ListStream):
+    "Like a ListStream, except it also yields a final return value."
+
+    def __init__(self, list, return_value=None, index=0):
+        self.list = list
+        self.return_value = return_value
+        self.index = index
+    
+    def __call__(self):
+        if self.index < len(self.list):
+            return (self.list[self.index], FrozenStream(self.list, self.return_value, self.index + 1))
+        return Return(self.return_value)
+    
+    def __str__(self):
+        return f"FrozenStream([...], return_value={self.return_value}, index={self.index})"
+    
+    def inspect(self):
+        return {
+            "name": "frozen",
+            "parameters": {"list": self.list, "return_value": self.return_value, "index": self.index}
         }
 
 # TODO: Deprecated, replace references.
@@ -590,9 +614,6 @@ def fm_osc(freq_stream, phase=0):
         return (math.sin(phase), fm_osc(next_stream, phase + 2*math.pi*freq/SAMPLE_RATE))
     return closure
 
-# main = fm_osc(count() / 480 % 800)
-
-# TODO: Can we generate this kind of __str__ function automatically from function introspection?
 @raw_stream
 def glide(freq_stream, hold_time, transition_time, start_freq=0):
     def closure():
@@ -859,7 +880,7 @@ def w(f):
 # If the file already exists, load it instead of running the stream.
 # Like freeze(), assumes `stream` is finite.
 @stream
-def frozen(name, stream, redo=False):
+def frozen(name, stream, redo=False, include_return=False):
     # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
     # (Hashes differently between session, if referenced objects are created in the session.)
     if not redo:
@@ -870,10 +891,49 @@ def frozen(name, stream, redo=False):
             # File doesn't exist: stream hasn't been frozen before.
             redo = True
     if redo:
-        stream = ListStream(list(stream))
+        if include_return:
+            # NOTE: This fails if the return value is not pickleable (as is the case for many streams).
+            it = iter(stream)
+            li = list(it)
+            stream = FrozenStream(li, it.returned)
+        else:
+            stream = ListStream(list(stream))
         with open(f'frozen_{name}.pkl', 'wb') as f:
             pickle.dump(stream, f)
         return stream
+
+# This is similar to frozen(), but it records the stream *as it plays* rather than forcing the entire stream ahead of time.
+# This is a critical distinction for any stream that depends on external time-varying state, such as audio.input_stream.
+# Conceptually, record() is a cross between frozen() and memoize().
+@stream
+def record(name, stream, redo=False, include_return=False):
+    if not redo:
+        try:
+            with open(f'record_{name}.pkl', 'rb') as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+            # File doesn't exist: stream hasn't been recorded before.
+            redo = True
+    if redo:
+        final_stream = None
+        # After the initial record finishes, we want to replay the
+        # stored stream (rather than recording again or appending).
+        def closure():
+            if final_stream:
+                return final_stream()
+            else:
+                recorded = []
+                def finish(result):
+                    nonlocal final_stream
+                    if include_return:
+                        final_stream = FrozenStream(recorded, result)
+                    else:
+                        final_stream = ListStream(recorded)
+                    with open(f'record_{name}.pkl', 'wb') as f:
+                        pickle.dump(final_stream, f)
+                    return lambda: Return(result)
+                return stream.map(lambda x: recorded.append(x) or x).bind(finish)()
+        return closure
 
 @stream
 def log_stream(print_period=1):
