@@ -71,9 +71,28 @@ def layer(date=datetime(2020,1,1)):
 #         out = out >> fit(clip, 1.5)
 #     return out
 
-l = layer()
-l2 = resample(l, const(1.2))
-c = l2 + l2 + l2 + l2 + l2 + l2 + l2
+@stream
+def layer2(start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+    t = 0
+    items = []
+    for days in range((end_date - start_date).days):
+        date = start_date + timedelta(days)
+        term = get_term(date)
+        if term:
+            print(date, term)
+            fn = (lambda d, s: w(lambda: print(d) or s))(date, speech_cache[term])
+            items.append((t, None, fn))
+        t += 0.5
+    return arrange(items)
+
+l0 = layer2()
+l1 = layer2()
+l2 = layer2()
+l3 = layer2()
+c = (l0 + l1 + l2 + l3)/4
+
+import wav
+wav.save(c, "search_sample.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
