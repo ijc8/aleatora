@@ -570,9 +570,14 @@ def to_stream(x):
         return ListStream(x.tolist())
     return ListStream(x)
 
-@stream
-def osc(freq):
-    return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
+# @stream
+# def osc(freq):
+#     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
+
+# Sometimes it's useful to specify the starting phase:
+@raw_stream
+def osc(freq, phase=0):
+    return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
 
 # NOTE: Aliased.
 @stream

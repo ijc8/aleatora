@@ -12,7 +12,7 @@ from midi import *
 class StreamManager:
     def __init__(self, finish_callback):
         self.finish_callback = finish_callback
-        # Map of stream name -> (stream, paused position)
+        # Map of stream name -> (stream, paused position, history, history index)
         self.streams = {}
         # Map of stream name -> stream
         self.playing_streams = {}
