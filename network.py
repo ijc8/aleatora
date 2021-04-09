@@ -125,3 +125,19 @@ def hold_value(stream, filler=None, init=None):
 def block_stream(stream, filler=None):
     "Convert a nonblocking stream to a blocking stream."
     return stream.filter(lambda x: x is not filler)
+
+
+# Example: random integers from random.org.
+
+import time
+import urllib.request
+RANDOM_URL = "https://www.random.org/integers/?num=1&min={0}&max={1}&col=1&base=10&format=plain&rnd=new"
+
+@raw_stream
+def random_org_stream(min=1, max=100):
+    def closure():
+        time.sleep(1)
+        url = RANDOM_URL.format(min, max)
+        value = int(urllib.request.urlopen(url).read().strip())
+        return (value, random_org_stream(1, 100))
+    return closure
