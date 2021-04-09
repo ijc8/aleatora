@@ -559,8 +559,9 @@ class FrozenStream(ListStream):
             "parameters": {"list": self.list, "return_value": self.return_value, "index": self.index}
         }
 
-# TODO: Deprecated, replace references.
 def list_to_stream(l):
+    import warnings
+    warnings.warn("list_to_stream is deprecated, use to_stream instead", DeprecationWarning)
     return ListStream(l)
 
 def to_stream(x):
@@ -589,7 +590,7 @@ def basic_envelope(length):
     ramp_time = int(length * 0.1)
     ramp = np.linspace(0, 1, ramp_time)
     envelope = np.concatenate((ramp, np.ones(length - ramp_time*2), ramp[::-1]))
-    return list_to_stream(envelope)
+    return to_stream(envelope)
 
 
 ## Utilities that have more to do with audio than streams.
@@ -653,10 +654,10 @@ def basic_sequencer(note_stream, bpm=80):
 
 def adsr(attack, decay, sustain_time, sustain_level, release):
     attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
-    return list_to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
-                                          np.linspace(1, sustain_level, decay, endpoint=False),
-                                          np.ones(sustain_time) * sustain_level,
-                                          np.linspace(0, sustain_level, release, endpoint=False)[::-1])))
+    return to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
+                                     np.linspace(1, sustain_level, decay, endpoint=False),
+                                     np.ones(sustain_time) * sustain_level,
+                                     np.linspace(0, sustain_level, release, endpoint=False)[::-1])))
 
 
 # This function produces a stream of exactly length, by trimming or padding as needed.
@@ -770,7 +771,7 @@ def freeze(stream):
     t = time.time()
     r = list(stream)
     print('Done in', time.time() - t)
-    return NamedStream(f"freeze({str(stream)})", list_to_stream(r))
+    return NamedStream(f"freeze({str(stream)})", to_stream(r))
 
 
 # Essentially a partial freeze of length 1.
@@ -781,7 +782,7 @@ def peek(stream, default=None):
         return (default, Stream(lambda: result))
     x, rest = result
     # "Unpeek". Overhead disappears after first sample.
-    return (x, list_to_stream([x]) >> rest)
+    return (x, to_stream([x]) >> rest)
 
 @raw_stream
 def branch(choices, default=empty):
@@ -819,7 +820,7 @@ def normalize(stream):
     print('Done in', time.time() - t)
     a = np.array(l)
     peak = np.max(np.abs(a))
-    return list_to_stream(a / peak)
+    return to_stream(a / peak)
 
 def arrange(items):
     if not items:
