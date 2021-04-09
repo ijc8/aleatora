@@ -74,7 +74,9 @@ class StreamManager:
             self.to_change.put((name, self.streams[name][1]))
         else:
             assert(stream is not None)
-            self.streams[name] = [stream, stream, [stream] * self.history_length, 0]
+            # See TODO above.
+            # self.streams[name] = [stream, stream, [stream] * self.history_length, 0]
+            self.streams[name] = [stream, stream]
             self.to_change.put((name, stream))
     
     def pause(self, name):
@@ -117,7 +119,9 @@ class StreamManager:
             self.to_change.put((name, None))
     
     def rewind(self, name):
-        if name in self.playing_streams:
-            self.to_change.put((name, self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]))
-        elif name in self.streams:
-            self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
+        # See TODO above.
+        # if name in self.playing_streams:
+        #     self.to_change.put((name, self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]))
+        # elif name in self.streams:
+        #     self.streams[name][1] = self.streams[name][2][(self.streams[name][3] + 1) % self.history_length]
+        pass
