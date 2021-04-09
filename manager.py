@@ -45,10 +45,15 @@ class StreamManager:
                 else:
                     value, next_stream = result
                     next_playing_streams[name] = next_stream
-                    history = self.streams[name][2]
-                    history_index = self.streams[name][3]
-                    history[history_index] = next_stream
-                    self.streams[name][3] = (history_index + 1) % self.history_length
+                    # TODO: Devise a less memory-hungry approach here.
+                    # A (replayable) stream contains a snapshot of the audio subgraph at that point in the stream,
+                    # so saving each stream every sample is very expensive in memory usage.
+                    # Instead, we should only save snapshots every N samples, or let the user save specific checkpoints.
+                    # Until one of these alternatives is implemented, this feature is temporarily disabled.
+                    # history = self.streams[name][2]
+                    # history_index = self.streams[name][3]
+                    # history[history_index] = next_stream
+                    # self.streams[name][3] = (history_index + 1) % self.history_length
                     acc += value
             except Exception as e:
                 traceback.print_exc()

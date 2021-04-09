@@ -49,30 +49,10 @@ def get_term(day):
             return term
 
 from datetime import datetime, timedelta
-get_term(datetime(2020,11,1))
-
-# max_len = max(len(c.inspect()['implementation'].list) for c in speech_cache.values())
-
-@stream
-def layer(date=datetime(2020,1,1)):
-    term = get_term(date)
-    print(date, term)
-    clip = speech_cache.get(term, silence)
-    return fit(clip, 1.2) >> w(lambda: layer(date + timedelta(1)))
-
-# @stream
-# def layer2(start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
-#     out = empty
-#     for days in range((end_date - start_date).days):
-#         date = start_date + timedelta(days)
-#         term = get_term(date)
-#         print(date, term)
-#         clip = speech_cache.get(term, silence)
-#         out = out >> fit(clip, 1.5)
-#     return out
 
 @stream
 def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+    clip_env = adsr(0.05, 0.05, 0, 0.1, 2.0)
     t = 0
     items = []
     for days in range((end_date - start_date).days):
@@ -82,14 +62,13 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
             print(date, term)
             clip = speech_cache[term]
             if rate != 1:
-                clip = resample(clip, const(rate))
+                clip = resample(clip, const(rate)) * clip_env
             fn = (lambda d, s: w(lambda: print(d) or s))(date, clip)
             items.append((t, None, fn))
         t += 0.4
     return arrange(items)
 
 random.seed(0)
-# layers = [layer(1.2), layer(1.1), layer(1), layer(.9), layer(1), layer(1.1), layer(1.2)]
 layers = [
     layer(.6*(5/4)**3),
     layer(.6*(5/4)**2),
@@ -99,16 +78,13 @@ layers = [
     layer(.6*(5/4)**2),
     layer(.6*(5/4)**3)
 ]
-# @raw_stream
-# def osc(freq, phase=0):
-#     return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
 c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
 # c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
 
-f = freeze(c[:10.0])
+# f = freeze(c[:10.0])
 
 import wav
-wav.save(c, "search6.wav", verbose=True)
+wav.save(c, "search8.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
