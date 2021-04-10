@@ -52,7 +52,7 @@ from datetime import datetime, timedelta
 
 @stream
 def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
-    clip_env = adsr(0.05, 0.05, 0, 0.1, 2.0)
+    clip_env = adsr(0.1, 0.2, 0, 0.1, 2.0)
     t = 0
     items = []
     for days in range((end_date - start_date).days):
@@ -78,7 +78,7 @@ layers = [
     layer(.6*(5/4)**2),
     layer(.6*(5/4)**3)
 ]
-c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))
+c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
 # c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
 
 f = freeze(c[:10.0])
@@ -114,7 +114,7 @@ play(filters.bpf(c, osc(0.1)*1000+1100, 2.0))
 # mid = const(550)
 # high = cycle(const(660)[:1.2] >> const(630)[:1.2])
 
-freqs = zoh(rand, convert_time(1.2)) * 1000
+freqs = silence[:0.1] >> zoh(rand, convert_time(1.2)) * 600 + 40
 
 random.seed(0)
 # Some issue with splitter memory usage, will investigate later.
@@ -124,7 +124,8 @@ random.seed(0)
 #     lambda p: MixStream([filters.bpf(p, freqs, 30.0) for _ in range(3)]))
 fc = freeze(c)
 c2 = MixStream([filters.bpf(fc, freqs, 30.0) for _ in range(3)])
-wav.save(c2, "search9.wav")
+wav.save(c2, "search10.wav")
+f = freeze(c2[:10.0])
 
 
 play(splitter(f, lambda p: (
