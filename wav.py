@@ -27,7 +27,6 @@ def load_mono(filename):
     audio = load(filename)
     return audio.sum(axis=1) / audio.shape[1]
 
-
 def save(comp, filename, chunk_size=16384, verbose=False):
     w = wave.open(filename, 'wb')
     sample, comp = core.peek(comp)
@@ -38,6 +37,8 @@ def save(comp, filename, chunk_size=16384, verbose=False):
     w.setframerate(core.SAMPLE_RATE)
     chunk = np.empty((chunk_size, channels), dtype=np.float)
     siter = iter(comp)
+    # Avoid holding onto memory if e.g. memoize() is involved:
+    del comp
     i = chunk_size - 1
     if verbose:
         t = 0

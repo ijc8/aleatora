@@ -1,5 +1,6 @@
 import numpy as np
 
+import array
 import inspect
 import math
 import time
@@ -559,6 +560,13 @@ class FrozenStream(ListStream):
             "parameters": {"list": self.list, "return_value": self.return_value, "index": self.index}
         }
 
+class ArrayStream(ListStream):
+    "Like a ListStream, but uses an array to store numeric types more efficiently."
+
+    def __init__(self, list, index=0, typecode='d'):
+        super().__init__(array.array(typecode, list), index)
+
+
 def list_to_stream(l):
     import warnings
     warnings.warn("list_to_stream is deprecated, use to_stream instead", DeprecationWarning)
@@ -568,7 +576,7 @@ def to_stream(x):
     if isinstance(x, Stream):
         return x
     if isinstance(x, np.ndarray):
-        return ListStream(x.tolist())
+        return ArrayStream(x)
     return ListStream(x)
 
 # @stream
@@ -822,6 +830,7 @@ def normalize(stream):
     peak = np.max(np.abs(a))
     return to_stream(a / peak)
 
+@stream
 def arrange(items):
     if not items:
         return empty
@@ -1048,3 +1057,7 @@ def repeat(stream, n):
 @stream
 def splitter(stream, receiver):
     return lambda: receiver(memoize(stream))()
+
+# NOTE: `return receiver(lambda: memoize(stream)())` would instead memoize separately for each invocation in the receiver - defeating the purpose of the splitter.
+# also, should rename this 'tee'.
+

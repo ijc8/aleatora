@@ -8,6 +8,7 @@ import reprlib
 import types
 
 import cloudpickle
+import psutil
 import websockets
 
 from core import *
@@ -264,8 +265,15 @@ async def serve(websocket, path):
             finished_event.clear()
             while finished:
                 await websocket.send(json.dumps({"type": "finish", "name": finished.pop()}))
+    
+    process = psutil.Process()
+    async def get_resource_usage():
+        while True:
+            await websocket.send(json.dumps({"type": "usage", "cpu": process.cpu_percent(), "memory": process.memory_info().rss/(1024**2)}))
+            await asyncio.sleep(1)
 
     asyncio.ensure_future(wait_for_finish())
+    asyncio.ensure_future(get_resource_usage())
 
     while True:
         # Send list of streams.
@@ -335,7 +343,7 @@ async def serve(websocket, path):
                 with stdIO() as s:
                     try:
                         code = compile(data['code'], '<assistant>', data['mode'])
-                        exec(code, globals=globals())
+                        exec(code, globals())
                     except:
                         traceback.print_exc()
                 print("result:", s.getvalue())

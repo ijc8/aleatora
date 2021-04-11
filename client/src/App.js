@@ -413,6 +413,7 @@ const App = () => {
   const [resources, setResources] = useState({})
   const [playing, setPlaying] = useState({})
   const [focus, setFocus] = useState(null)
+  const [usage, setUsage] = useState({cpu: "?", memory: "?"})
 
   const create = () => {
     dispatch(repl.setContents(">>> "))
@@ -451,6 +452,8 @@ const App = () => {
         // TODO: Restore REPL history.
         dispatch(repl.setContents(data.repl))
         dispatch(repl.setInputStart(data.repl.length))
+      } else if (data.type === "usage") {
+        setUsage({cpu: data.cpu.toFixed(1) + "%", memory: +(Math.round(data.memory + "e+2")  + "e-2") + " MB"})
       } else if (data.type === "error") {
         console.log(data)
       }
@@ -492,6 +495,9 @@ const App = () => {
       </div>
       <div className="repl">
         <REPL />
+      </div>
+      <div className="status">
+        <div style={{width: "3em", textAlign: "right"}}>{usage.cpu}</div>&nbsp;/ {usage.memory}
       </div>
     </div>
   </Provider>
