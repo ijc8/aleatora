@@ -1,26 +1,30 @@
 import core
 
 import numpy as np
+from scipy import signal
 
 import time
 import wave
 
 
-def load(filename):
+def load(filename, resample=False):
     with wave.open(filename, 'rb') as w:
         width = w.getsampwidth()
         channels = w.getnchannels()
         buffer = w.readframes(w.getnframes())
         if width == 2:
-            return np.frombuffer(buffer, dtype=np.int16).reshape(-1, channels).astype(np.float) / np.iinfo(np.int16).max
+            data = np.frombuffer(buffer, dtype=np.int16).reshape(-1, channels).astype(np.float) / np.iinfo(np.int16).max
         elif width == 3:
             audio = np.frombuffer(buffer, dtype=np.uint8).reshape(-1, 3)
             converted = np.bitwise_or.reduce(audio << np.array([8, 16, 24]), dtype=np.int32, axis=1)
-            return converted.astype(np.float).reshape(-1, channels) / np.iinfo(np.int32).max
+            data = converted.astype(np.float).reshape(-1, channels) / np.iinfo(np.int32).max
         elif width == 4:
-            return np.frombuffer(buffer, dtype=np.int32).astype(np.float).reshape(-1, channels) / np.iinfo(np.int32).max
+            data = np.frombuffer(buffer, dtype=np.int32).astype(np.float).reshape(-1, channels) / np.iinfo(np.int32).max
         else:
             raise NotImplementedError(f"{width*8}-bit wave files not supported")
+        if resample and core.SAMPLE_RATE != w.getframerate():
+            return signal.resample(data, int(core.SAMPLE_RATE / w.getframerate() * len(data)))
+        return data
 
 
 def load_mono(filename):

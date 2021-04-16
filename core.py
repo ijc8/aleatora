@@ -560,12 +560,6 @@ class FrozenStream(ListStream):
             "parameters": {"list": self.list, "return_value": self.return_value, "index": self.index}
         }
 
-class ArrayStream(ListStream):
-    "Like a ListStream, but uses an array to store numeric types more efficiently."
-
-    def __init__(self, list, index=0, typecode='d'):
-        super().__init__(array.array(typecode, list), index)
-
 
 def list_to_stream(l):
     import warnings
@@ -576,7 +570,7 @@ def to_stream(x):
     if isinstance(x, Stream):
         return x
     if isinstance(x, np.ndarray):
-        return ArrayStream(x)
+        return ListStream(array.array('d', x))
     return ListStream(x)
 
 # @stream
@@ -905,13 +899,23 @@ def frozen(name, stream, redo=False, include_return=False):
             # File doesn't exist: stream hasn't been frozen before.
             redo = True
     if redo:
+        it = iter(stream)
+        # Try to freeze into an array, until we encounter an object that cannot be converted to float.
+        items = array.array('d')
+        for item in it:
+            try:
+                items.append(item)
+            except TypeError:
+                # Non-float item; switch from array to list.
+                items = list(items)
+                items.append(item)
+                items.extend(it)
+                break
         if include_return:
-            # NOTE: This fails if the return value is not pickleable (as is the case for many streams).
-            it = iter(stream)
-            li = list(it)
-            stream = FrozenStream(li, it.returned)
+            # NOTE: This fails if the return value is not pickleable; as most streams are not pickleable, this will usually fail with slice.
+            stream = FrozenStream(items, it.returned)
         else:
-            stream = ListStream(list(stream))
+            stream = ListStream(items)
         with open(f'frozen_{name}.pkl', 'wb') as f:
             pickle.dump(stream, f)
         return stream

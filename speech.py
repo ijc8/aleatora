@@ -1,10 +1,16 @@
-from gtts import gTTS
 from io import BytesIO
+import subprocess
+import tempfile
+
+from gtts import gTTS
 from streamp3 import MP3Decoder
 import numpy as np
 from scipy import signal
 
 from core import *
+import wav
+
+## Google TTS
 
 @stream(json='text')
 def speech(text, lang='en', slow=False, tld='com', filename=None):
@@ -33,6 +39,62 @@ def speech(text, lang='en', slow=False, tld='com', filename=None):
     assert(decoder.num_channels == 1)
     data = np.concatenate([np.frombuffer(chunk, dtype=np.int16).copy() for chunk in decoder]).astype(np.float) / np.iinfo(np.int16).max
     return to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
+
+
+## Festival singing mode
+
+# Song :: [(word, note, duration)]
+def gen_xml(song, bpm=60):
+    s = """<?xml version="1.0"?>
+<!DOCTYPE SINGING PUBLIC "-//SINGING//DTD SINGING mark up//EN"
+ "Singing.v0_1.dtd"
+[]>
+<SINGING BPM="30">"""
+    for word, note, duration in song:
+        if isinstance(note, list):
+            note = ','.join(note)
+        if isinstance(duration, list):
+            duration = ','.join(map(str, duration))
+        s += f'<PITCH NOTE="{note}"><DURATION BEATS="{duration}">{word}</DURATION></PITCH>'
+    s += "</SINGING>"
+    return s
+
+def get_num_syllables(text):
+    cmd = '(print (length (utt.relation.items (utt.synth (Utterance Text "{0}")) \'Syllable)))'
+    return int(subprocess.check_output(
+        ["festival", "--pipe"],
+        input=cmd.format(text.replace('"', '')).encode()
+    ))
+
+def fix_song(song, divide_duration=True):
+    # We need to determine the number of syllables in each word, as festival's singing mode expects one pitch and duration per syllable.
+    # Also, it will not sing more than one word (even if the right number of notes are provided), so we join words with '-'.
+    out_song = []
+    for word, note, duration in song:
+        word = word.replace(' ', '-')
+        syllables = get_num_syllables(word)
+        if syllables > 1:
+            if not isinstance(note, list):
+                note = [note] * syllables
+            if divide_duration:
+                duration /= syllables
+            if not isinstance(duration, list):
+                duration = [duration] * syllables
+        out_song.append((word, note, duration))
+    return out_song
+
+def sing(song, bpm=60, divide_duration=True, voice="us1_mbrola"):
+    xml = gen_xml(fix_song(song, divide_duration), bpm)
+    with tempfile.NamedTemporaryFile('w') as wf:
+        print(xml, file=wf, flush=True)
+        # TODO: Load wave directly from subprocess output instead of using temporary file.
+        with tempfile.NamedTemporaryFile('rb') as rf:
+            subprocess.run([
+                "text2wave",
+                "-eval", f"(voice_{voice})",
+                "-mode", "singing",
+                wf.name, "-o", rf.name])
+            return to_stream(wav.load(rf, resample=True))
 
 if __name__ == '__main__':
     import audio
