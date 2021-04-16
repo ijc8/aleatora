@@ -1,4 +1,3 @@
-# from core import *
 import pickle
 import os
 
@@ -25,12 +24,32 @@ max_sum = max(sum(week.values()) for week in weeks.values())
 weeks = {week: {term: value/max_sum for term, value in week_data.items()} for week, week_data in weeks.items()}
 
 # Load speech for terms.
-from speech import speech
+from speech import speech, sing
+
+s = ConcatStream([sing([("election results", n+'4', 0.5)], voice="us2_mbrola")
+    for n in 'EFGF'])
+
+s1 = cycle(MixStream([sing([("election", n+'4', 0.5)], voice="kal_diphone")
+    for n in 'CEGB']))
+
+s2 = cycle(MixStream([sing([("results", n+'4', 0.5)], voice="kal_diphone")
+    for n in 'CEGB']))
+
+c1 = (pan(s1, 0) + pan(s2, 1))/2
+
+wav.save(c1[:15.0], "search12.wav")
+
+s = cycle(MixStream([sing([("election", n+'4', 0.1), ("results", n+'4', 0.1)], divide_duration=False, voice="kal_diphone")
+    for n in 'CEGB']))
+
+gen_xml(fix_song([("election", 'E4', 0.1)], False), 60)
+
 SPEECH_DIR = 'tts'
 speech_cache = {}
 for i, term in enumerate(data.keys()):
-    # print(i, term)
-    speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
+    print(i, term)
+    # speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
+    speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
 
 def get_week(day):
     last_week = None
@@ -52,7 +71,7 @@ from datetime import datetime, timedelta
 
 @stream
 def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
-    clip_env = adsr(0.1, 0.2, 0, 0.1, 2.0)
+    # clip_env = adsr(0.1, 0.2, 0, 0.1, 2.0)
     t = 0
     items = []
     for days in range((end_date - start_date).days):
@@ -62,9 +81,9 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
             print(date, term)
             clip = speech_cache[term]
             if rate != 1:
-                clip = resample(clip, const(rate)) * clip_env
-            fn = (lambda d, s: w(lambda: print(d) or s))(date, clip)
-            items.append((t, None, fn))
+                clip = resample(clip, const(rate)) # * clip_env
+            # fn = (lambda d, s: w(lambda: print(d) or s))(date, clip)
+            items.append((t, None, clip))
         t += 0.4
     return arrange(items)
 
@@ -80,11 +99,19 @@ layers = [
 ]
 c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
 # c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
-
+l = layer(1)
+l2 = layer(1)
+hm = (pan(layer(2), 0) +
+      pan(layer(1), 0.25) +
+      pan(layer(0.5), 0.5) +
+      pan(layer(1), 0.75) +
+      pan(layer(2), 1))
+hm = hm/3
+fc = frozen("7layers.wav", c)
 f = freeze(c[:10.0])
 
 import wav
-wav.save(c, "search8.wav", verbose=True)
+wav.save(hm, "search11.wav", verbose=True)
 
 play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
 play()
@@ -108,11 +135,21 @@ play()
 
 import filters
 
-play(filters.bpf(c, osc(0.1)*1000+1100, 2.0))
+play(filters.bpf(fc, osc(0.1)*1000+1100, 2.0))
+play()
 
-# low = cycle(const(440)[:1.2] >> const(470)[:1.2])
-# mid = const(550)
-# high = cycle(const(660)[:1.2] >> const(630)[:1.2])
+low = cycle(const(440)[:1.2] >> const(470)[:1.2])
+mid = const(550)
+high = cycle(const(660)[:1.2] >> const(630)[:1.2])
+
+c2 = MixStream([filters.bpf(fc, fs, 30.0) for fs in (low, mid, high)])
+
+low = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (60,)]))
+mid = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (67,)]))
+high = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (75,)]))
+
+c2 = MixStream([filters.bpf(fc, silence[:0.1] >> fs, 30.0) for fs in (low, mid, high)])
+
 
 freqs = silence[:0.1] >> zoh(rand, convert_time(1.2)) * 600 + 40
 
