@@ -39,6 +39,36 @@ c1 = (pan(s1, 0) + pan(s2, 1))/2
 
 wav.save(c1[:15.0], "search12.wav")
 
+from chord import C, PITCH_CLASSES
+# MIDI Pitch to Scientific Pitch Notation
+def pitch_to_spn(pitch):
+    octave, pitch_class = divmod(pitch, 12)
+    return f'{PITCH_CLASSES[pitch_class]}{octave-1}'
+
+def sing_chord(text, pitches, duration=1):
+    # The `+12` is because festival calls 440 Hz A5 (not A4).
+    return MixStream([
+        sing([(text, pitch_to_spn(pitch+12), duration)])
+        for pitch in pitches
+    ])
+
+s = sing_chord('Hello world', C('C').notes)
+
+# Modify live:
+chord = 'C#6'
+cs = cycle(w(lambda: sing_chord('Hello world', C(chord).notes)))
+
+# chords :: [(text, pitches, duration)]
+def sing_chords(chords):
+    return ConcatStream([sing_chord(*p) for p in chords])
+
+s = sing_chords([("Hello", C('Cmaj7').notes, 1), ("world", C('Dm6').notes, 1)])
+
+def stutter(stream, size, repeats):
+    return repeat(stream[:size], repeats).bind(lambda rest: stutter(rest, size, repeats) if rest else empty)
+
+st = stutter(s, .1, 3)
+
 s = cycle(MixStream([sing([("election", n+'4', 0.1), ("results", n+'4', 0.1)], divide_duration=False, voice="kal_diphone")
     for n in 'CEGB']))
 
@@ -87,7 +117,50 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
         t += 0.4
     return arrange(items)
 
+term_cache = {}
+def sing_term(term, pitch):
+    if (term, pitch) not in term_cache:
+        term_cache[(term, pitch)] = sing([(term, pitch_to_spn(pitch+12), 0.15)], divide_duration=False, voice='us2_mbrola')
+    return term_cache[(term, pitch)]
+
+@stream
+def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+    t = 0
+    items = []
+    for pitch, days in zip(pitch_stream, range((end_date - start_date).days)):
+        date = start_date + timedelta(days)
+        term = get_term(date)
+        if term:
+            print(date, term)
+            clip = sing_term(term, pitch)
+            items.append((t, None, clip))
+        t += 0.3
+    return arrange(items)
+
 random.seed(0)
+
+l = flayer(const(48))
+l2 = flayer(const(60))
+l3 = flayer(const(55))
+l4 = flayer(const(64))
+l5 = flayer(const(59))
+
+from FauxDot import beat
+play()
+# TODO: debug desync
+play(l + beat("x", bpm=60/0.15/4))
+
+play()
+play(l+l2+l3+l4)
+
+c = (aa_tri(m2f(36))/4 +
+     pan(l3, 0) +
+     pan(l2, 1/4) +
+     pan(l, 2/4) +
+     pan(l4, 3/4) +
+     pan(l5, 1))
+cf = freeze(c[:20.0])
+
 layers = [
     layer(.6*(5/4)**3),
     layer(.6*(5/4)**2),
