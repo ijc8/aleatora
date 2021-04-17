@@ -1,3 +1,4 @@
+import collections
 from io import BytesIO
 import subprocess
 import tempfile
@@ -44,18 +45,18 @@ def speech(text, lang='en', slow=False, tld='com', filename=None):
 ## Festival singing mode
 
 # Song :: [(word, note, duration)]
-def gen_xml(song, bpm=60):
+def gen_xml(song):
     s = """<?xml version="1.0"?>
 <!DOCTYPE SINGING PUBLIC "-//SINGING//DTD SINGING mark up//EN"
  "Singing.v0_1.dtd"
 []>
 <SINGING BPM="30">"""
-    for word, note, duration in song:
-        if isinstance(note, list):
-            note = ','.join(note)
-        if isinstance(duration, list):
+    for word, freq, duration in song:
+        if isinstance(freq, collections.abc.Sequence):
+            freq = ','.join(map(str, freq))
+        if isinstance(duration, collections.abc.Sequence):
             duration = ','.join(map(str, duration))
-        s += f'<PITCH NOTE="{note}"><DURATION BEATS="{duration}">{word}</DURATION></PITCH>'
+        s += f'<PITCH FREQ="{freq}"><DURATION SECONDS="{duration}">{word}</DURATION></PITCH>'
     s += "</SINGING>"
     return s
 
@@ -70,21 +71,21 @@ def fix_song(song, divide_duration=True):
     # We need to determine the number of syllables in each word, as festival's singing mode expects one pitch and duration per syllable.
     # Also, it will not sing more than one word (even if the right number of notes are provided), so we join words with '-'.
     out_song = []
-    for word, note, duration in song:
+    for word, freq, duration in song:
         word = word.replace(' ', '-')
         syllables = get_num_syllables(word)
         if syllables > 1:
-            if not isinstance(note, list):
-                note = [note] * syllables
+            if not isinstance(freq, collections.abc.Sequence):
+                freq = [freq] * syllables
             if divide_duration:
                 duration /= syllables
-            if not isinstance(duration, list):
+            if not isinstance(duration, collections.abc.Sequence):
                 duration = [duration] * syllables
-        out_song.append((word, note, duration))
+        out_song.append((word, freq, duration))
     return out_song
 
-def sing(song, bpm=60, divide_duration=True, voice="us1_mbrola"):
-    xml = gen_xml(fix_song(song, divide_duration), bpm)
+def sing(song, divide_duration=True, voice="us1_mbrola"):
+    xml = gen_xml(fix_song(song, divide_duration))
     with tempfile.NamedTemporaryFile('w') as wf:
         print(xml, file=wf, flush=True)
         # TODO: Load wave directly from subprocess output instead of using temporary file.

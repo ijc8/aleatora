@@ -11,6 +11,7 @@ CHORD_ALIASES = {
     'maj': '',
     'min': 'm',
     'min7': 'm7',
+    'M7': 'maj7',
     'halfdim7': 'm7b5',
 }
 

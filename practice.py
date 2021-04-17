@@ -2251,3 +2251,15 @@ def splitter0(in_stream, receiver):
         return closure
     return inner(in_stream, out_stream)
 
+
+# 4/16/21
+from speech import sing
+from FauxDot import beat
+c = (sing([("hello world", m2f(57), 1.0)]) +
+     sing([("hello world", m2f(64), 1.0)]) +
+     sing([("hello world", m2f(66), 1.0)]))
+fc = freeze(c)
+rfv = ListStream(fc.fn.list[::-1])
+s = resample(fc >> rfv, 1 + osc(1)*.01)
+play(cycle(w(lambda: s)) + beat("x-o[x-]", bpm=120))
+play()
