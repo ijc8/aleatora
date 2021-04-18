@@ -26,33 +26,13 @@ weeks = {week: {term: value/max_sum for term, value in week_data.items()} for we
 # Load speech for terms.
 from speech import speech, sing
 
-s = ConcatStream([sing([("election results", n+'4', 0.5)], voice="us2_mbrola")
-    for n in 'EFGF'])
-
-s1 = cycle(MixStream([sing([("election", n+'4', 0.5)], voice="kal_diphone")
-    for n in 'CEGB']))
-
-s2 = cycle(MixStream([sing([("results", n+'4', 0.5)], voice="kal_diphone")
-    for n in 'CEGB']))
-
-c1 = (pan(s1, 0) + pan(s2, 1))/2
-
-wav.save(c1[:15.0], "search12.wav")
-
 from chord import C, PITCH_CLASSES
-# MIDI Pitch to Scientific Pitch Notation
-def pitch_to_spn(pitch):
-    octave, pitch_class = divmod(pitch, 12)
-    return f'{PITCH_CLASSES[pitch_class]}{octave-1}'
-
 def sing_chord(text, pitches, duration=1):
     # The `+12` is because festival calls 440 Hz A5 (not A4).
     return MixStream([
-        sing([(text, pitch_to_spn(pitch+12), duration)])
+        sing(text, m2f(pitch), duration)
         for pitch in pitches
     ])
-
-s = sing_chord('Hello world', C('C').notes)
 
 # Modify live:
 chord = 'C#6'
@@ -68,11 +48,6 @@ def stutter(stream, size, repeats):
     return repeat(stream[:size], repeats).bind(lambda rest: stutter(rest, size, repeats) if rest else empty)
 
 st = stutter(s, .1, 3)
-
-s = cycle(MixStream([sing([("election", n+'4', 0.1), ("results", n+'4', 0.1)], divide_duration=False, voice="kal_diphone")
-    for n in 'CEGB']))
-
-gen_xml(fix_song([("election", 'E4', 0.1)], False), 60)
 
 SPEECH_DIR = 'tts'
 speech_cache = {}
@@ -120,7 +95,7 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
 term_cache = {}
 def sing_term(term, pitch):
     if (term, pitch) not in term_cache:
-        term_cache[(term, pitch)] = sing([(term, pitch_to_spn(pitch+12), 0.15)], divide_duration=False, voice='us2_mbrola')
+        term_cache[(term, pitch)] = sing([(term, m2f(pitch), 0.15)], divide_duration=False, voice='us2_mbrola')
     return term_cache[(term, pitch)]
 
 @stream
@@ -136,6 +111,17 @@ def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1
             items.append((t, None, clip))
         t += 0.3
     return arrange(items)
+
+ps1 = const(60)
+
+play(osc(m2f(60)))
+play()
+
+ps2 = cycle(to_stream([64,64,63,63,65,65,64,64]))
+
+ps3 = cycle(to_stream([67,67,69]))
+
+ps4 = cycle(to_stream([72,71,69,71]))
 
 random.seed(0)
 
@@ -153,13 +139,17 @@ play(l + beat("x", bpm=60/0.15/4))
 play()
 play(l+l2+l3+l4)
 
-c = (aa_tri(m2f(36))/4 +
-     pan(l3, 0) +
+# c = (aa_tri(m2f(36))/4 +
+c = (pan(l3, 0) +
      pan(l2, 1/4) +
      pan(l, 2/4) +
      pan(l4, 3/4) +
      pan(l5, 1))
+# TODO: implement a proper zip-shortest add function.
+c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
 cf = freeze(c[:20.0])
+
+wav.save(c, "search13.wav", verbose=True)
 
 layers = [
     layer(.6*(5/4)**3),
