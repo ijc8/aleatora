@@ -6,8 +6,10 @@ TERMS_DIR = 'terms'
 filenames = os.listdir(TERMS_DIR)
 data = {os.path.splitext(fn)[0].replace('_', '/'): pickle.load(open(os.path.join(TERMS_DIR, fn), 'rb')) for fn in filenames}
 
-# Limit to desired dates.
-start_date = '2019-12-29'
+# Limit to desired dates. We start a week early so we can get diffs for rising terms.
+# (Alternatively, we could ask Google for rising data directly.)
+# (The saved data in trends/ has this, but it's a daily granularity instead of weekly.)
+start_date = '2019-12-22'
 data = {term: row['max_ratio'][start_date:] for term, row in data.items()}
 # Sort by peak interest.
 data = dict(sorted(data.items(), key=lambda p: -max(p[1])))
@@ -22,6 +24,25 @@ for term, rows in data.items():
 # Now, normalize.
 max_sum = max(sum(week.values()) for week in weeks.values())
 weeks = {week: {term: value/max_sum for term, value in week_data.items()} for week, week_data in weeks.items()}
+
+def weekdiff(a, b, epsilon=2e-5):
+    # Reasonable value of epsilon determined by experiment.
+    return {
+        term: a.get(term, 0) / b.get(term, epsilon)
+        for term in set(a) | set(b)
+    }
+
+rising = {}
+for prev_week, week in zip(weeks, list(weeks)[1:]):
+    diff = weekdiff(weeks[week], weeks[prev_week])
+    # TODO: May return to this to include more information.
+    rising[week] = sorted(diff, key=lambda t: -diff[t])
+    print(week, rising[week][0:2])
+
+# Now, remove the first week (which was entirely in 2019).
+top = weeks.copy()
+top.pop(list(top)[0])
+
 
 # Load speech for terms.
 from speech import speech, sing
@@ -49,12 +70,12 @@ def stutter(stream, size, repeats):
 
 st = stutter(s, .1, 3)
 
-SPEECH_DIR = 'tts'
-speech_cache = {}
-for i, term in enumerate(data.keys()):
-    print(i, term)
-    # speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
-    speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
+# SPEECH_DIR = 'tts'
+# speech_cache = {}
+# for i, term in enumerate(data.keys()):
+#     print(i, term)
+#     # speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
+#     speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
 
 def get_week(day):
     last_week = None
@@ -64,13 +85,18 @@ def get_week(day):
         last_week = week
     return last_week
 
+# Gets random term with probability weighted by interest on that day.
 def get_term(day):
-    terms = weeks[get_week(day)]
+    terms = top[get_week(day)]
     r = random.random()
     for term, probability in terms.items():
         r -= probability
         if r < 0:
             return term
+
+# TODO: Get term based on rising interest.
+def get_rising_term(day):
+    raise NotImplementedError
 
 from datetime import datetime, timedelta
 
@@ -95,9 +121,10 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
 term_cache = {}
 def sing_term(term, pitch):
     if (term, pitch) not in term_cache:
-        # Hack to get recognizable pronunciation.
+        # Hacks to get recognizable pronunciation.
         # (These voices pronounce "coronavirus" like "carnivorous".)
         text = term.replace("coronavirus", "corona-virus")
+        text = text.replace("kobe", "kobey")
         term_cache[(term, pitch)] = sing([(text, m2f(pitch), 0.15)], divide_duration=False, voice='us2_mbrola')
     return term_cache[(term, pitch)]
 
@@ -122,7 +149,16 @@ ps1 = const(60)
 ps2 = cycle(to_stream([64,64,63,63,65,65,64,64]))
 ps3 = cycle(to_stream([67,67,69]))
 ps4 = cycle(to_stream([72,71,69,71]))
+# Interesting how this affects perception of the higher levels:
+# ps5 = cycle(to_stream([48,48,48,48,55,55,55,55]))
 ps5 = cycle(to_stream([48,48,48,55,55,55]))
+
+play(MixStream([
+    fm_osc(zoh(ps.map(m2f), convert_time(0.3)))
+    for ps in (ps1, ps2, ps3, ps4, ps5)
+])/6)
+
+play()
 
 random.seed(0)
 l = flayer(ps1)
