@@ -95,9 +95,15 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
 term_cache = {}
 def sing_term(term, pitch):
     if (term, pitch) not in term_cache:
-        term_cache[(term, pitch)] = sing([(term, m2f(pitch), 0.15)], divide_duration=False, voice='us2_mbrola')
+        # Hack to get recognizable pronunciation.
+        # (These voices pronounce "coronavirus" like "carnivorous".)
+        text = term.replace("coronavirus", "corona-virus")
+        term_cache[(term, pitch)] = sing([(text, m2f(pitch), 0.15)], divide_duration=False, voice='us2_mbrola')
     return term_cache[(term, pitch)]
 
+# NOTE: This sings each term in that day's pitch,
+# but terms may spill over into subsequent days,
+# potentially 'smearing' the pitches.
 @stream
 def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
     t = 0
@@ -113,23 +119,17 @@ def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1
     return arrange(items)
 
 ps1 = const(60)
-
-play(osc(m2f(60)))
-play()
-
 ps2 = cycle(to_stream([64,64,63,63,65,65,64,64]))
-
 ps3 = cycle(to_stream([67,67,69]))
-
 ps4 = cycle(to_stream([72,71,69,71]))
+ps5 = cycle(to_stream([48,48,48,55,55,55]))
 
 random.seed(0)
-
-l = flayer(const(48))
-l2 = flayer(const(60))
-l3 = flayer(const(55))
-l4 = flayer(const(64))
-l5 = flayer(const(59))
+l = flayer(ps1)
+l2 = flayer(ps2)
+l3 = flayer(ps3)
+l4 = flayer(ps4)
+l5 = flayer(ps5)
 
 from FauxDot import beat
 play()
@@ -146,10 +146,10 @@ c = (pan(l3, 0) +
      pan(l4, 3/4) +
      pan(l5, 1))
 # TODO: implement a proper zip-shortest add function.
-c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
+# c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
 cf = freeze(c[:20.0])
 
-wav.save(c, "search13.wav", verbose=True)
+wav.save(c, "search14.wav", verbose=True)
 
 layers = [
     layer(.6*(5/4)**3),
