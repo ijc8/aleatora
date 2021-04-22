@@ -84,7 +84,11 @@ def fix_song(song, divide_duration=True):
         out_song.append((word, freq, duration))
     return out_song
 
-def sing(song, divide_duration=True, voice="us1_mbrola"):
+def sing(*args, divide_duration=True, voice="us1_mbrola"):
+    if len(args) == 1:
+        song = args[0]
+    elif len(args) == 3:
+        song = [args]
     xml = gen_xml(fix_song(song, divide_duration))
     with tempfile.NamedTemporaryFile('w') as wf:
         print(xml, file=wf, flush=True)

@@ -654,6 +654,7 @@ def basic_sequencer(note_stream, bpm=80):
     return lazy_concat(note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)))
 
 
+@stream
 def adsr(attack, decay, sustain_time, sustain_level, release):
     attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
     return to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
