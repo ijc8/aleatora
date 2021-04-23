@@ -44,12 +44,11 @@ top = weeks.copy()
 top.pop(list(top)[0])
 
 
-# Load speech for terms.
+# Speech & singing
 from speech import speech, sing
 
 from chord import C, PITCH_CLASSES
 def sing_chord(text, pitches, duration=1):
-    # The `+12` is because festival calls 440 Hz A5 (not A4).
     return MixStream([
         sing(text, m2f(pitch), duration)
         for pitch in pitches
@@ -57,7 +56,7 @@ def sing_chord(text, pitches, duration=1):
 
 # Modify live:
 chord = 'C#6'
-cs = cycle(w(lambda: sing_chord('Hello world', C(chord).notes)))
+cs = repeat(lambda: sing_chord('Hello world', C(chord).notes)).join()
 
 # chords :: [(text, pitches, duration)]
 def sing_chords(chords):
@@ -70,12 +69,12 @@ def stutter(stream, size, repeats):
 
 st = stutter(s, .1, 3)
 
-# SPEECH_DIR = 'tts'
-# speech_cache = {}
-# for i, term in enumerate(data.keys()):
-#     print(i, term)
-#     # speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
-#     speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
+SPEECH_DIR = 'tts'
+speech_cache = {}
+for i, term in enumerate(data.keys()):
+    print(i, term)
+    speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
+    # speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
 
 def get_week(day):
     last_week = None
@@ -94,9 +93,8 @@ def get_term(day):
         if r < 0:
             return term
 
-# TODO: Get term based on rising interest.
-def get_rising_term(day):
-    raise NotImplementedError
+def get_rising(day):
+    return rising[get_week(day)][:3]
 
 from datetime import datetime, timedelta
 
@@ -118,6 +116,9 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
         t += 0.4
     return arrange(items)
 
+SYLLABLE_DURATION = 0.2
+DAY_DURATION = 0.4
+
 term_cache = {}
 def sing_term(term, pitch):
     if (term, pitch) not in term_cache:
@@ -125,7 +126,7 @@ def sing_term(term, pitch):
         # (These voices pronounce "coronavirus" like "carnivorous".)
         text = term.replace("coronavirus", "corona-virus")
         text = text.replace("kobe", "kobey")
-        term_cache[(term, pitch)] = sing([(text, m2f(pitch), 0.15)], divide_duration=False, voice='us2_mbrola')
+        term_cache[(term, pitch)] = sing([(text, m2f(pitch), SYLLABLE_DURATION)], divide_duration=False, voice='us1_mbrola')
     return term_cache[(term, pitch)]
 
 # NOTE: This sings each term in that day's pitch,
@@ -142,7 +143,17 @@ def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1
             print(date, term)
             clip = sing_term(term, pitch)
             items.append((t, None, clip))
-        t += 0.3
+        t += DAY_DURATION
+    return arrange(items)
+
+@stream
+def rlayer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    items = []
+    for day in range(0, (end - start).days, 7):
+        rising = get_rising(start + timedelta(day))
+        clips = [speech_cache[term] for term in rising]
+        tutti = pan(clips[0], 0.5) + pan(clips[1], 0) + pan(clips[2], 1)
+        items.append((DAY_DURATION * day, None, tutti))
     return arrange(items)
 
 ps1 = const(60)
@@ -154,7 +165,7 @@ ps4 = cycle(to_stream([72,71,69,71]))
 ps5 = cycle(to_stream([48,48,48,55,55,55]))
 
 play(MixStream([
-    fm_osc(zoh(ps.map(m2f), convert_time(0.3)))
+    fm_osc(zoh(ps.map(m2f), convert_time(DAY_DURATION)))
     for ps in (ps1, ps2, ps3, ps4, ps5)
 ])/6)
 
@@ -166,11 +177,11 @@ l2 = flayer(ps2)
 l3 = flayer(ps3)
 l4 = flayer(ps4)
 l5 = flayer(ps5)
+lr = rlayer()
 
 from FauxDot import beat
 play()
-# TODO: debug desync
-play(l + beat("x", bpm=60/0.15/4))
+play(l + beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
 
 play()
 play(l+l2+l3+l4)
@@ -180,12 +191,14 @@ c = (pan(l3, 0) +
      pan(l2, 1/4) +
      pan(l, 2/4) +
      pan(l4, 3/4) +
-     pan(l5, 1))
+     pan(l5, 1) +
+     lr)
+    #  beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
 # TODO: implement a proper zip-shortest add function.
 # c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
 cf = freeze(c[:20.0])
 
-wav.save(c, "search14.wav", verbose=True)
+wav.save(c, "search15.wav", verbose=True)
 
 layers = [
     layer(.6*(5/4)**3),
