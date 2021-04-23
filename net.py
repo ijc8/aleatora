@@ -53,7 +53,7 @@ def unblock_stream1(blocking_stream, filler=None):
 # Specifying maxlen bounds how far it can run ahead; maxlen=0
 # creates an unbounded queue, but this is dangerous for infinite streams,
 # as the thread running blocking_stream will just keep going.
-def unblock_stream(blocking_stream, filler=None, maxlen=1024):
+def unblock_stream2(blocking_stream, filler=None, maxlen=1024):
     q = queue.Queue(maxlen)
     it = iter(blocking_stream)
     def wrapper():
@@ -126,7 +126,6 @@ def block_stream(stream, filler=None):
     "Convert a nonblocking stream to a blocking stream."
     return stream.filter(lambda x: x is not filler)
 
-
 # Example: random integers from random.org.
 
 import time
@@ -141,3 +140,60 @@ def random_org_stream(min=1, max=100):
         value = int(urllib.request.urlopen(url).read().strip())
         return (value, random_org_stream(1, 100))
     return closure
+
+
+# Real API starts here:
+@raw_stream
+def unblock(blocking_stream, filler=None, hold=False):
+    ret = None
+    def wrapper():
+        nonlocal ret
+        ret = blocking_stream()
+    t = threading.Thread(target=wrapper)
+    def closure():
+        nonlocal t
+        if t.is_alive():
+            return (filler, closure)
+        if isinstance(ret, Return):
+            return ret
+        value, next_stream = ret
+        return (value, unblock(next_stream, value if hold else filler, hold))
+    # NOTE: We wait until the first sample is requested to start the thread.
+    def init():
+        t.start()
+        return closure()
+    return init
+
+# TODO: Test all of these.
+import socket
+
+# Hm. Should these create the socket (and closure) in init, for better garbage collection?
+
+# This acts as a TCP client
+# TODO: Test with netcat
+@raw_stream
+def byte_stream(address, port, chunk_size=1):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def init():
+        s.connect((address, port))
+        return closure()
+    def closure():
+        return (s.recv(chunk_size), closure)
+    return init
+
+# This acts as a UDP server
+@raw_stream
+def packet_stream(address, port, max_packet_size=65536):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def init():
+        s.bind((address, port))
+        return closure()
+    def closure():
+        return (s.recvfrom(max_packet_size), closure)
+    return init
+
+import oscpy
+
+@raw_stream
+def osc_stream(address, port):
+    return packet_stream(address, port, 65536).map(oscpy.parser.read_packet)

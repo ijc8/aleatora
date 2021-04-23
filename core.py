@@ -235,6 +235,22 @@ class Stream:
             value, stream = result
             return (value, stream.bind(fn))
         return closure
+    
+    @raw_stream
+    def join(self):
+        def closure():
+            result = self()
+            if isinstance(result, Return):
+                return result
+            value, stream = result
+            return (value >> stream.join())()
+        return closure
+
+    @stream
+    def cycle(self):
+        cycled = ConcatStream(())
+        cycled.streams = (self, cycled)
+        return cycled
 
     def __str__(self):
         return "Mystery Stream"
@@ -452,6 +468,7 @@ class NamedStream(Stream):
             return {"name": str(self), "parameters": {}}
 
 
+# TODO: Deprecate in favor of Stream.cycle().
 @stream
 def cycle(stream):
     cycled = ConcatStream(())
@@ -1050,8 +1067,9 @@ def zoh(stream, hold_time, prev_value=None, pos=0):
         return (value, zoh(next_stream, hold_time, value, pos - hold_time + 1))
     return closure
 
-def repeat(stream, n):
-    return ConcatStream([stream] * n)
+# TODO: Perhaps come up with another name for this, if it's worth keeping.
+# def repeat(stream, n):
+#     return ConcatStream([stream] * n)
 
 # This is a function that can split a stream into multiple streams that will yield the same values.
 # The tricky part is ensuring that we don't keep around excess memoized results.
@@ -1065,4 +1083,11 @@ def splitter(stream, receiver):
 
 # NOTE: `return receiver(lambda: memoize(stream)())` would instead memoize separately for each invocation in the receiver - defeating the purpose of the splitter.
 # also, should rename this 'tee'.
+
+@stream
+def repeat(f):
+    @Stream
+    def closure():
+        return (f(), closure)
+    return closure
 
