@@ -64,10 +64,10 @@ def sing_chords(chords):
 
 s = sing_chords([("Hello", C('Cmaj7').notes, 1), ("world", C('Dm6').notes, 1)])
 
-def stutter(stream, size, repeats):
-    return repeat(stream[:size], repeats).bind(lambda rest: stutter(rest, size, repeats) if rest else empty)
+# def stutter(stream, size, repeats):
+#     return repeat(stream[:size], repeats).bind(lambda rest: stutter(rest, size, repeats) if rest else empty)
 
-st = stutter(s, .1, 3)
+# st = stutter(s, .1, 3)
 
 SPEECH_DIR = 'tts'
 speech_cache = {}
@@ -119,14 +119,15 @@ def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
 SYLLABLE_DURATION = 0.2
 DAY_DURATION = 0.4
 
+# Hacks to get recognizable pronunciation.
+# (These voices pronounce "coronavirus" like "carnivorous".)
+def fix_term(term):
+    return term.replace("coronavirus", "corona-virus").replace("kobe", "kobey")
+
 term_cache = {}
 def sing_term(term, pitch):
     if (term, pitch) not in term_cache:
-        # Hacks to get recognizable pronunciation.
-        # (These voices pronounce "coronavirus" like "carnivorous".)
-        text = term.replace("coronavirus", "corona-virus")
-        text = text.replace("kobe", "kobey")
-        term_cache[(term, pitch)] = sing([(text, m2f(pitch), SYLLABLE_DURATION)], divide_duration=False, voice='us1_mbrola')
+        term_cache[(term, pitch)] = sing(fix_term(term), m2f(pitch), SYLLABLE_DURATION, divide_duration=False, voice='us1_mbrola')
     return term_cache[(term, pitch)]
 
 # NOTE: This sings each term in that day's pitch,
@@ -153,6 +154,7 @@ def rlayer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
         rising = get_rising(start + timedelta(day))
         clips = [speech_cache[term] for term in rising]
         tutti = pan(clips[0], 0.5) + pan(clips[1], 0) + pan(clips[2], 1)
+        tutti += sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION * 7)
         items.append((DAY_DURATION * day, None, tutti))
     return arrange(items)
 
@@ -187,18 +189,20 @@ play()
 play(l+l2+l3+l4)
 
 # c = (aa_tri(m2f(36))/4 +
+import filters
 c = (pan(l3, 0) +
      pan(l2, 1/4) +
      pan(l, 2/4) +
      pan(l4, 3/4) +
      pan(l5, 1) +
-     lr)
-    #  beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
+     filters.comb(lr, .5, -convert_time(SYLLABLE_DURATION/2))/4)
+    #  beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4) +
+    #  beat("x x ", bpm=60/SYLLABLE_DURATION/4))
 # TODO: implement a proper zip-shortest add function.
 # c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
 cf = freeze(c[:20.0])
 
-wav.save(c, "search15.wav", verbose=True)
+wav.save(c, "search16.wav", verbose=True)
 
 layers = [
     layer(.6*(5/4)**3),
