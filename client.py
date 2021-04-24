@@ -98,7 +98,7 @@ def better_sequencer(notes, bpm=120):
         start *= 60 / bpm
         length *= 60 / bpm
         stream = osc(m2f(pitch)) * basic_envelope(length)
-        arrangement.append((start, None, stream))
+        arrangement.append((start, stream))
     print('Arranged:', arrangement)
     return arrange(arrangement)
 
@@ -150,12 +150,12 @@ def save(resource, resource_name):
 
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
-my_cool_envelope = load("my_cool_envelope")
+# my_cool_envelope = load("my_cool_envelope")
 import wav
-my_cool_sound = to_stream(wav.load_mono('samples/a.wav'))
+# my_cool_sound = to_stream(wav.load_mono('samples/a.wav'))
 
-my_cool_seq = load("my_cool_seq")
-my_cool_speech = load("my_cool_speech")
+# my_cool_seq = load("my_cool_seq")
+# my_cool_speech = load("my_cool_speech")
 
 class MyEncoder(json.JSONEncoder):
     def default(self, o):

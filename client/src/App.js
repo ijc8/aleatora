@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Provider, useSelector, useDispatch } from 'react-redux'
+import Split from 'react-split-grid'
+import Editor from "@monaco-editor/react"
+
 import store, { repl, socket, send } from './app/store'
-import Editor from "@monaco-editor/react";
 import './App.css'
 
 // Data from Python process: map from variable name (String) => Stream info
@@ -151,7 +153,7 @@ const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
     tabs.push(tabMap[resource.name])
   }
   tabs.push(HelpTab)
-  
+
   // Make sure this stays in-bounds when switching between resources.
   const expanded = Math.min(_expanded, tabs.length - 1)
 
@@ -461,45 +463,56 @@ const App = () => {
   }, [playing])
 
   return <Provider store={store}>
-    <div className="layout">
-      {/* Top bar */}
-      <div className="menu">
-        <button>
-          <Icon name="menu" />
-        </button>
-      </div>
-      <div className="title">
-        {focus !== null &&
-        <>
-          {focusModule !== "__main__" && <span className="title-module">{focusModule}.</span>}
-          <span>{focusName}</span>
-        </>}
-      </div>
+    <Split
+      render={({
+          getGridProps,
+          getGutterProps,
+      }) => (
+        <div className="layout" {...getGridProps()}>
+          {/* Column gutters */}
+          <div className="gutter-col" style={{gridColumn: 3}} {...getGutterProps('column', 2)} />
+          <div className="gutter-col" style={{gridColumn: 5}} {...getGutterProps('column', 4)} />
 
-      <ProjectBar create={create} open={open} save={save} />
+          {/* Top bar */}
+          <div className="menu">
+            <button>
+              <Icon name="menu" />
+            </button>
+          </div>
+          <div className="title">
+            {focus !== null &&
+            <>
+              {focusModule !== "__main__" && <span className="title-module">{focusModule}.</span>}
+              <span>{focusName}</span>
+            </>}
+          </div>
 
-      {/* Left sidebar */}
-      <div className="volume">
-        <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} />
-      </div>
-      
-      {/* Main content */}
-      <ResourcePane resources={resources} focus={focus} setFocus={setFocus} playing={playing} setPlaying={setPlaying} />
-      <div className="details">
-        {focus !== null &&
-        <ResourceDetails name={focus} resource={focusResource}
-                         playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
-      </div>
-      <div className="editor">
-        <CodeEditor editor={editor} />
-      </div>
-      <div className="repl">
-        <REPL />
-      </div>
-      <div className="status">
-        <div style={{width: "3em", textAlign: "right"}}>{usage.cpu}</div>&nbsp;/ {usage.memory}
-      </div>
-    </div>
+          <ProjectBar create={create} open={open} save={save} />
+
+          {/* Left sidebar */}
+          <div className="volume">
+            <VolumeControl setVolume={(db) => send({ cmd: "volume", volume: Math.pow(10, db/20) })} />
+          </div>
+
+          {/* Main content */}
+          <ResourcePane resources={resources} focus={focus} setFocus={setFocus} playing={playing} setPlaying={setPlaying} />
+          <div className="details">
+            {focus !== null &&
+            <ResourceDetails name={focus} resource={focusResource}
+                            playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
+          </div>
+          <div className="editor">
+            <CodeEditor editor={editor} />
+          </div>
+          <div className="repl">
+            <REPL />
+          </div>
+          <div className="status">
+            <div style={{width: "3em", textAlign: "right"}}>{usage.cpu}</div>&nbsp;/ {usage.memory}
+          </div>
+        </div>
+      )}
+    />
   </Provider>
     /* <Settings doRefresh={() => send({ cmd: "refresh" })} /> */
 }

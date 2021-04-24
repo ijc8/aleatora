@@ -842,19 +842,16 @@ def normalize(stream):
     peak = np.max(np.abs(a))
     return to_stream(a / peak)
 
+# Analagous to DAW timeline; takes a bunch of streams and their start times, and arranges them in a reasonably efficient way.
 @stream
 def arrange(items):
     if not items:
         return empty
     items = sorted(items, key=lambda item: item[0], reverse=True)
-    last_start_time, last_end_time, last_stream = items[0]
-    if last_end_time:
-        last_stream = last_stream[:last_end_time - last_start_time]
+    last_start_time, last_stream = items[0]
     out = lambda r: r + last_stream
     prev_start_time = last_start_time
-    for start_time, end_time, stream in items[1:]:
-        if end_time:
-            stream = stream[:end_time - start_time]
+    for start_time, stream in items[1:]:
         # Sometimes I really wish Python had `let`...
         out = (lambda start, stream, prev: (lambda r: (r + stream)[:start].bind(prev)))(prev_start_time - start_time, stream, out)
         prev_start_time = start_time

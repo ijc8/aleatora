@@ -18,10 +18,19 @@ body {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 40px 1fr 2fr 2fr;
+  /* TODO: Set first column back to 40px once react-split-grid is fixed.
+     https://github.com/nathancahill/split/issues/304 */
+  grid-template-columns: 0.1fr 1fr 6px 2fr 6px 2fr;
   grid-template-rows: 40px 1fr 1fr 30px;
   grid-gap: 1px;
   background-color: black;
+}
+
+.gutter-col {
+  grid-row: 1/-1;
+  cursor: col-resize;
+  border: none;
+  grid-gap: 0;
 }
 
 .layout > div {
@@ -72,7 +81,7 @@ body {
 
 .title {
   grid-row: 1;
-  grid-column: 3;
+  grid-column: 4;
   padding: 0.5em;
   padding-left: 1em;
   font-family: 'Roboto Mono', monospace;
@@ -89,22 +98,23 @@ body {
 
 .details {
   grid-row: 2 / 4;
-  grid-column: 3;
+  grid-column: 4;
   word-wrap: anywhere;
   min-width: 0;
 }
 
 .project {
   grid-row: 1;
-  grid-column: 4;
+  grid-column: 6;
   display: grid;
   grid-template-rows: 1fr;
   grid-template-columns: 1fr 1fr 1fr;
 }
 
 .editor {
+  overflow: auto;
   grid-row: 2 / 3;
-  grid-column: 4;
+  grid-column: 6;
 }
 
 .editor > textarea {
@@ -119,7 +129,7 @@ body {
 
 .repl {
   grid-row: 3;
-  grid-column: 4;
+  grid-column: 6;
 }
 
 .repl > textarea {
@@ -134,7 +144,7 @@ body {
 
 .status {
   grid-row: 4;
-  grid-column: 1 / 5;
+  grid-column: 1 / 7;
   padding: 0.3em;
   display: flex;
 }
