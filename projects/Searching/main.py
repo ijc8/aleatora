@@ -44,6 +44,15 @@ top = weeks.copy()
 top.pop(list(top)[0])
 
 
+sums = [sum(week.values()) for week in weeks.values()]
+import scipy.interpolate
+import numpy as np
+interp = scipy.interpolate.interp1d((np.arange(len(sums)) - .5) * 7, sums)
+activity = zoh(to_stream(interp(np.arange(366))), convert_time(DAY_DURATION))
+# import matplotlib.pyplot as plt
+# plt.plot(daily)
+
+
 # Speech & singing
 from speech import speech, sing
 
@@ -74,7 +83,6 @@ speech_cache = {}
 for i, term in enumerate(data.keys()):
     print(i, term)
     speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
-    # speech_cache[term] = sing([(term, 'G4', 0.1)], divide_duration=False)
 
 def get_week(day):
     last_week = None
@@ -98,24 +106,6 @@ def get_rising(day):
 
 from datetime import datetime, timedelta
 
-@stream
-def layer(rate=1, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
-    # clip_env = adsr(0.1, 0.2, 0, 0.1, 2.0)
-    t = 0
-    items = []
-    for days in range((end_date - start_date).days):
-        date = start_date + timedelta(days)
-        term = get_term(date)
-        if term:
-            print(date, term)
-            clip = speech_cache[term]
-            if rate != 1:
-                clip = resample(clip, const(rate)) # * clip_env
-            # fn = (lambda d, s: w(lambda: print(d) or s))(date, clip)
-            items.append((t, None, clip))
-        t += 0.4
-    return arrange(items)
-
 SYLLABLE_DURATION = 0.2
 DAY_DURATION = 0.4
 
@@ -130,79 +120,128 @@ def sing_term(term, pitch):
         term_cache[(term, pitch)] = sing(fix_term(term), m2f(pitch), SYLLABLE_DURATION, divide_duration=False, voice='us1_mbrola')
     return term_cache[(term, pitch)]
 
-# NOTE: This sings each term in that day's pitch,
-# but terms may spill over into subsequent days,
-# potentially 'smearing' the pitches.
+# NOTE: This sings each term in that day's pitch, but with divide_duration=False,
+# but terms may spill over into subsequent days, potentially 'smearing' the pitches.
 @stream
-def flayer(pitch_stream, start_date=datetime(2020,1,1), end_date=datetime(2021,1,1)):
+def sing_layer(pitch_stream, start=datetime(2020,1,1), end=datetime(2021,1,1)):
     t = 0
     items = []
-    for pitch, days in zip(pitch_stream, range((end_date - start_date).days)):
-        date = start_date + timedelta(days)
+    for pitch, days in zip(pitch_stream, range((end - start).days)):
+        date = start + timedelta(days)
         term = get_term(date)
         if term:
             print(date, term)
             clip = sing_term(term, pitch)
-            items.append((t, None, clip))
+            items.append((t, clip))
         t += DAY_DURATION
     return arrange(items)
 
 @stream
-def rlayer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    items = []
+def spoken_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    spoken_items = []
     for day in range(0, (end - start).days, 7):
         rising = get_rising(start + timedelta(day))
         clips = [speech_cache[term] for term in rising]
         tutti = pan(clips[0], 0.5) + pan(clips[1], 0) + pan(clips[2], 1)
-        tutti += sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION * 7)
-        items.append((DAY_DURATION * day, None, tutti))
-    return arrange(items)
+        spoken_items.append((DAY_DURATION * day, tutti))
+    return arrange(spoken_items)
+
+@stream
+def high_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    spoken_items = []
+    high = empty
+    for day in range(0, (end - start).days, 7):
+        rising = get_rising(start + timedelta(day))
+        term = sing(fix_term(rising[0]), m2f(67), DAY_DURATION)[:DAY_DURATION]
+        for d in range(min((end-start).days-day, 7)):
+            high >>= term
+    return high
+
+@stream
+def bass_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    spoken_items = []
+    bass = empty
+    for day in range(0, (end - start).days, 7):
+        rising = get_rising(start + timedelta(day))
+        bass >>= sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION*7)[:DAY_DURATION*7]
+    return bass
 
 ps1 = const(60)
-ps2 = cycle(to_stream([64,64,63,63,65,65,64,64]))
-ps3 = cycle(to_stream([67,67,69]))
-ps4 = cycle(to_stream([72,71,69,71]))
+ps2 = to_stream([64,64,63,63,65,65,64,64]).cycle()
+ps3 = to_stream([67,67,69]).cycle()
+ps4 = to_stream([72,71,69,71]).cycle()
 # Interesting how this affects perception of the higher levels:
 # ps5 = cycle(to_stream([48,48,48,48,55,55,55,55]))
-ps5 = cycle(to_stream([48,48,48,55,55,55]))
+ps5 = to_stream([48,48,48,55,55,55]).cycle()
 
-play(MixStream([
-    fm_osc(zoh(ps.map(m2f), convert_time(DAY_DURATION)))
-    for ps in (ps1, ps2, ps3, ps4, ps5)
-])/6)
+# play(MixStream([
+#     fm_osc(zoh(ps.map(m2f), convert_time(DAY_DURATION)))
+#     for ps in (ps1, ps2, ps3, ps4, ps5)
+# ])/6)
 
-play()
+HIGH_SPAN = (0, 52*7)
+PERCUSSION_SPAN = (1*7, 51*7)
+CHOIR0_SPAN = (2*7, 51*7)
+CHOIR1_SPAN = (4*7, 50*7)
+CHOIR2_SPAN = (6*7, 49*7)
+CHOIR3_SPAN = (8*7, 48*7)
+CHOIR4_SPAN = (10*7, 47*7)
+SPOKEN_SPAN = (12*7, 366)
+BASS_SPAN = (14*7, 52*7)
+
+start = datetime(2020,1,1)
 
 random.seed(0)
-l = flayer(ps1)
-l2 = flayer(ps2)
-l3 = flayer(ps3)
-l4 = flayer(ps4)
-l5 = flayer(ps5)
-lr = rlayer()
-
+high = high_layer(start=start+timedelta(HIGH_SPAN[0]), end=start+timedelta(HIGH_SPAN[1]))
+choir0 = sing_layer(ps1, start=start+timedelta(CHOIR0_SPAN[0]), end=start+timedelta(CHOIR0_SPAN[1]))
+choir1 = sing_layer(ps2, start=start+timedelta(CHOIR1_SPAN[0]), end=start+timedelta(CHOIR1_SPAN[1]))
+choir2 = sing_layer(ps4, start=start+timedelta(CHOIR2_SPAN[0]), end=start+timedelta(CHOIR2_SPAN[1]))
+choir3 = sing_layer(ps3, start=start+timedelta(CHOIR3_SPAN[0]), end=start+timedelta(CHOIR3_SPAN[1]))
+choir4 = sing_layer(ps5, start=start+timedelta(CHOIR4_SPAN[0]), end=start+timedelta(CHOIR4_SPAN[1]))
+spoken = spoken_layer(start=start+timedelta(SPOKEN_SPAN[0]), end=start+timedelta(SPOKEN_SPAN[1]))
+bass = bass_layer(start=start+timedelta(BASS_SPAN[0]), end=start+timedelta(BASS_SPAN[1]))
 from FauxDot import beat
-play()
-play(l + beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
-
-play()
-play(l+l2+l3+l4)
-
-# c = (aa_tri(m2f(36))/4 +
+percussion = beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
+# play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
+# play()
 import filters
-c = (pan(l3, 0) +
-     pan(l2, 1/4) +
-     pan(l, 2/4) +
-     pan(l4, 3/4) +
-     pan(l5, 1) +
-     filters.comb(lr, .5, -convert_time(SYLLABLE_DURATION/2))/4)
-    #  beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4) +
+
+# db to gain, for amplitudes
+def db(decibels):
+    return 10**(decibels/20)
+
+c0 = arrange([
+    (HIGH_SPAN[0]*DAY_DURATION, high),
+    (SPOKEN_SPAN[0]*DAY_DURATION, spoken),
+    (BASS_SPAN[0]*DAY_DURATION, bass*db(3)),
+    (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
+]) * activity
+
+# TODO: bring back choir panning
+c1 = arrange([
+    (CHOIR0_SPAN[0]*DAY_DURATION, choir0),
+    (CHOIR1_SPAN[0]*DAY_DURATION, choir1),
+    (CHOIR2_SPAN[0]*DAY_DURATION, choir2),
+    (CHOIR3_SPAN[0]*DAY_DURATION, choir3),
+    (CHOIR4_SPAN[0]*DAY_DURATION, choir4),
+])
+
+c = (c0 + c1)/2
+
+wav.save(c + frame(0, 0), "search18.wav", verbose=True)
+
+# c = (pan(choir3, 0) +
+#      pan(choir1, 1/4) +
+#      pan(choir0, 2/4) +
+#      pan(choir2, 3/4) +
+#      pan(choir4, 1) +
+#      (silence[:DAY_DURATION*6*7] >> filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION/2))/2) +
+#      (silence[:DAY_DURATION*12*7] >> bass/2) +
+#      beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
     #  beat("x x ", bpm=60/SYLLABLE_DURATION/4))
 # TODO: implement a proper zip-shortest add function.
 # c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
 cf = freeze(c[:20.0])
-
-wav.save(c, "search16.wav", verbose=True)
 
 layers = [
     layer(.6*(5/4)**3),
