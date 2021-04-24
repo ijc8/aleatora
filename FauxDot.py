@@ -4,7 +4,7 @@ import core
 import wav
 
 from FoxDot import (
-    P, Pattern, PGroup, PGroupPrime, PGroupPlus, ParsePlayString,
+    P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, ParsePlayString,
     Root, Scale, get_freq_and_midi, Samples, nil
 )
 
@@ -71,7 +71,9 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, cycle=True):
             # TODO: May need to deal with PGroupOr (which has a custom calculate_sample) here or punt.
             # TODO: Check how these are supposed to interact with sus and delay.
             # NOTE: We should not see nested patterns here, because these should already be taken care of by pattern_to_string.
-            if isinstance(degree, PGroupPlus):
+            if isinstance(degree, PGroupOr):
+                pass
+            elif isinstance(degree, PGroupPlus):
                 # Spread over `sus`.
                 return (_event_stream(patternish_to_stream(degree.data, cycle=False), core.const(sus / len(degree)), core.const(sus), core.const(delay), core.const(amp), core.const(bpm)) >> next_stream)()
             elif isinstance(degree, PGroupPrime):
@@ -89,7 +91,12 @@ def events_to_samples(event_stream):
     def process_event(event):
         # NOTE: Like play(), this ignores `sus`.
         degree, dur, sus, delay, amp, bpm = event
-        sample = Samples.getBufferFromSymbol(degree).stream
+        index = 0
+        if isinstance(degree, PGroupOr):
+            # Support basic sample-choosing syntax, as in |x2|.
+            index = degree.meta[0]
+            degree = degree[0]
+        sample = Samples.getBufferFromSymbol(degree, index).stream
         if amp != 1:
             sample *= amp
         # NOTE: `delay` does not throw off future timing.
