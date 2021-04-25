@@ -1,3 +1,6 @@
+SYLLABLE_DURATION = 0.2
+DAY_DURATION = 0.4
+
 import pickle
 import os
 
@@ -106,9 +109,6 @@ def get_rising(day):
 
 from datetime import datetime, timedelta
 
-SYLLABLE_DURATION = 0.2
-DAY_DURATION = 0.4
-
 # Hacks to get recognizable pronunciation.
 # (These voices pronounce "coronavirus" like "carnivorous".)
 def fix_term(term):
@@ -158,62 +158,27 @@ def high_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
 
 @stream
 def bass_layer(pitches, start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    bass_items = []
     bass = empty
     for pitch, day in zip(pitches[::7], range(0, (end - start).days, 7)):
-        rising = get_rising(start + timedelta(day))
+        term = fix_term(get_rising(start + timedelta(day))[0])
         # bass >>= sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION*7)[:DAY_DURATION*7]
-        bass >>= (sing(fix_term(rising[0]), m2f(pitch), DAY_DURATION*7)[:DAY_DURATION*7] +
-                  sing(fix_term(rising[0]), m2f(pitch+12), DAY_DURATION*7)[:DAY_DURATION*7])
+        bass >>= (sing(term, m2f(pitch), DAY_DURATION*7)[:DAY_DURATION*7] +
+                  sing(term, m2f(pitch+12), DAY_DURATION*7)[:DAY_DURATION*7])
     return bass
 
-# ps1 = const(60)
-# ps2 = to_stream([64,64,63,63,65,65,64,64]).cycle()
-# ps3 = to_stream([67,67,69]).cycle()
-# ps4 = to_stream([72,71,69,71]).cycle()
-# ps5 = to_stream([48,48,48,55,55,55]).cycle()
+import mido
+mid = mido.MidiFile('projects/Searching/Searching_2020.mid')
+times = {}
+time = 0
+for msg in mid:
+    time += msg.time
+    if not msg.is_meta and msg.type == 'note_on' and msg.velocity:
+        if time not in times:
+            times[time] = []
+        times[time].append(msg.note)
 
-c4 = 60
-d4 = c4 + 2
-eb4 = c4 + 3
-e4 = c4 + 4
-f4 = c4 + 5
-g4 = c4 + 7
-a4 = c4 + 9
-bb4 = c4 + 10
-c5 = c4 + 12
-d5 = d4 + 12
-eb5 = eb4 + 12
-e5 = e4 + 12
-f5 = f4 + 12
-g5 = g4 + 12
-a5 = a4 + 12
-bb5 = bb4 + 12
-c6 = c5 + 12
-
-g3 = g4 - 12
-a3 = a4 - 12
-bb3 = bb4 - 12
-f3 = f4 - 12
-g3 = g4 - 12
-eb2 = eb4 - 24
-f2 = f3 - 12
-c2 = c4 - 24
-g2 = g3 - 12
-bb2 = bb3 - 12
-
-#                Eb        F        C        Bb
-ps0 = to_stream([eb5]*7 + [c5]*7 + [c5]*7 + [bb4]*7).cycle()
-ps1 = to_stream([bb4]*7 + [a4]*7 + [g4]*7 + [f4 ]*7).cycle()
-ps2 = to_stream([g4 ]*7 + [f4]*7 + [e4]*7 + [d4 ]*7).cycle()
-ps3 = to_stream([eb4]*7 + [c4]*7 + [c4]*7 + [bb3]*7).cycle()
-ps4 = to_stream([bb3]*7 + [a3]*7 + [g3]*7 + [f3 ]*7).cycle()
-pb  = to_stream([eb2]*7 + [f2]*7 + [c2]*7 + [bb2]*7).cycle()
-
-# play(MixStream([
-#     fm_osc(zoh(ps.map(m2f), convert_time(DAY_DURATION)))
-#     for ps in (pb, ps0, ps1, ps2, ps3, ps4)
-# ])/6)
+chords = list(map(sorted, times.values()))
+voices = [zoh(to_stream([chord[i] for chord in chords]), 7) for i in range(6)]
 
 HIGH_SPAN = (0, 52*7)
 PERCUSSION_SPAN = (1*7, 51*7)
@@ -224,18 +189,19 @@ CHOIR3_SPAN = (8*7, 48*7)
 CHOIR4_SPAN = (10*7, 47*7)
 SPOKEN_SPAN = (12*7, 366)
 BASS_SPAN = (14*7, 52*7)
+SYNTH_SPAN = (10*7,)
 
 start = datetime(2020,1,1)
 
 random.seed(0)
 high = high_layer(start+timedelta(HIGH_SPAN[0]), start+timedelta(HIGH_SPAN[1]))
-choir0 = sing_layer(ps0[CHOIR0_SPAN[0]:], start+timedelta(CHOIR0_SPAN[0]), start+timedelta(CHOIR0_SPAN[1]))
-choir1 = sing_layer(ps1[CHOIR1_SPAN[0]:], start+timedelta(CHOIR1_SPAN[0]), start+timedelta(CHOIR1_SPAN[1]))
-choir2 = sing_layer(ps2[CHOIR2_SPAN[0]:], start+timedelta(CHOIR2_SPAN[0]), start+timedelta(CHOIR2_SPAN[1]))
-choir3 = sing_layer(ps3[CHOIR3_SPAN[0]:], start+timedelta(CHOIR3_SPAN[0]), start+timedelta(CHOIR3_SPAN[1]))
-choir4 = sing_layer(ps4[CHOIR4_SPAN[0]:], start+timedelta(CHOIR4_SPAN[0]), start+timedelta(CHOIR4_SPAN[1]))
+choir0 = sing_layer(voices[1][CHOIR0_SPAN[0]:], start+timedelta(CHOIR0_SPAN[0]), start+timedelta(CHOIR0_SPAN[1]))
+choir1 = sing_layer(voices[2][CHOIR1_SPAN[0]:], start+timedelta(CHOIR1_SPAN[0]), start+timedelta(CHOIR1_SPAN[1]))
+choir2 = sing_layer(voices[3][CHOIR2_SPAN[0]:], start+timedelta(CHOIR2_SPAN[0]), start+timedelta(CHOIR2_SPAN[1]))
+choir3 = sing_layer(voices[4][CHOIR3_SPAN[0]:], start+timedelta(CHOIR3_SPAN[0]), start+timedelta(CHOIR3_SPAN[1]))
+choir4 = sing_layer(voices[5][CHOIR4_SPAN[0]:], start+timedelta(CHOIR4_SPAN[0]), start+timedelta(CHOIR4_SPAN[1]))
 spoken = spoken_layer(start+timedelta(SPOKEN_SPAN[0]), start+timedelta(SPOKEN_SPAN[1]))
-bass = bass_layer(pb[BASS_SPAN[0]:], start+timedelta(BASS_SPAN[0]), start+timedelta(BASS_SPAN[1]))
+bass = bass_layer(voices[0][BASS_SPAN[0]:], start+timedelta(BASS_SPAN[0]), start+timedelta(BASS_SPAN[1]))
 from FauxDot import beat
 percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
 # play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
@@ -246,16 +212,19 @@ import filters
 def db(decibels):
     return 10**(decibels/20)
 
-play()
-play(filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION))/2)
+synths = MixStream([
+    fm_osc(zoh(voice.map(m2f), convert_time(DAY_DURATION)))
+    for voice in voices
+])/6
+
 c0 = arrange([
     (HIGH_SPAN[0]*DAY_DURATION, high),
-    (SPOKEN_SPAN[0]*DAY_DURATION, filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION))),
+    (SPOKEN_SPAN[0]*DAY_DURATION, filters.comb(spoken, .2, -convert_time(SYLLABLE_DURATION))),
     (BASS_SPAN[0]*DAY_DURATION, bass*db(3)),
-    (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
-]) * activity
+    # (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
+    (SYNTH_SPAN[0]*DAY_DURATION, synths[SYNTH_SPAN[0]*DAY_DURATION:]*db(-19))
+]) * (activity >> const(0.3)[:DAY_DURATION*8])
 
-# TODO: bring back choir panning
 c1 = arrange([
     (CHOIR0_SPAN[0]*DAY_DURATION, pan(choir0, 2/4)),
     (CHOIR1_SPAN[0]*DAY_DURATION, pan(choir1, 1/4)),
@@ -267,133 +236,3 @@ c1 = arrange([
 c = (c0 + c1)/2
 
 wav.save(c + frame(0, 0), "search21.wav", verbose=True)
-
-# c = (pan(choir3, 0) +
-#      pan(choir1, 1/4) +
-#      pan(choir0, 2/4) +
-#      pan(choir2, 3/4) +
-#      pan(choir4, 1) +
-#      (silence[:DAY_DURATION*6*7] >> filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION/2))/2) +
-#      (silence[:DAY_DURATION*12*7] >> bass/2) +
-#      beat("-[--]-[----]", bpm=60/SYLLABLE_DURATION/4))
-    #  beat("x x ", bpm=60/SYLLABLE_DURATION/4))
-# TODO: implement a proper zip-shortest add function.
-# c = c.zip(aa_tri(m2f(36)) / 5).map(lambda p: p[0] + p[1])
-cf = freeze(c[:20.0])
-
-layers = [
-    layer(.6*(5/4)**3),
-    layer(.6*(5/4)**2),
-    layer(.6*(5/4)**1),
-    layer(.6*(5/4)**0),
-    layer(.6*(5/4)**1),
-    layer(.6*(5/4)**2),
-    layer(.6*(5/4)**3)
-]
-c = sum(pan(lyr, i/(len(layers)-1)) for i, lyr in enumerate(layers))/len(layers)
-# c = sum(modpan(lyr, (1+osc(0.5, 2*math.pi*i/len(layers)))/2) for i, lyr in enumerate(layers))/len(layers)
-l = layer(1)
-l2 = layer(1)
-hm = (pan(layer(2), 0) +
-      pan(layer(1), 0.25) +
-      pan(layer(0.5), 0.5) +
-      pan(layer(1), 0.75) +
-      pan(layer(2), 1))
-hm = hm/3
-fc = frozen("7layers.wav", c)
-f = freeze(c[:10.0])
-
-import wav
-wav.save(hm, "search11.wav", verbose=True)
-
-play(fm_osc(const(440) + cycle(w(lambda: my_cool_envelope))*100))
-play()
-
-v0 = [400, 500, 600]
-v0 = ConcatStream([const(freq)[:0.5] for freq in v0])
-v1 = [400, 300, 400]
-v1 = ConcatStream([const(freq)[:0.5] for freq in v1])
-
-play(fm_osc(cycle(v0)) + fm_osc(cycle(v1)))
-
-from FauxDot import tune, Scale, P
-p0 = [ 0,  1,  2,  P*[4, 5]]
-p1 = [-2, -3, -5, -6, -7]
-
-v0 = w(lambda: tune(p0, oct=5, cycle=False))
-v1 = w(lambda: tune(p1, oct=4, cycle=False))
-
-play(mono_instrument(cycle(w(lambda: v0))) + mono_instrument(cycle(w(lambda: v1))))
-play()
-
-import filters
-
-play(filters.bpf(fc, osc(0.1)*1000+1100, 2.0))
-play()
-
-low = cycle(const(440)[:1.2] >> const(470)[:1.2])
-mid = const(550)
-high = cycle(const(660)[:1.2] >> const(630)[:1.2])
-
-c2 = MixStream([filters.bpf(fc, fs, 30.0) for fs in (low, mid, high)])
-
-low = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (60,)]))
-mid = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (67,)]))
-high = cycle(ConcatStream([const(m2f(x))[:1.2] for x in (75,)]))
-
-c2 = MixStream([filters.bpf(fc, silence[:0.1] >> fs, 30.0) for fs in (low, mid, high)])
-
-
-freqs = silence[:0.1] >> zoh(rand, convert_time(1.2)) * 600 + 40
-
-random.seed(0)
-# Some issue with splitter memory usage, will investigate later.
-# Unclear if it's something that could be solved with more frequent GC,
-# or if there's just a bug in splitter/memoize/wav.save.
-# c2 = splitter(c,
-#     lambda p: MixStream([filters.bpf(p, freqs, 30.0) for _ in range(3)]))
-fc = freeze(c)
-c2 = MixStream([filters.bpf(fc, freqs, 30.0) for _ in range(3)])
-wav.save(c2, "search10.wav")
-f = freeze(c2[:10.0])
-
-
-play(splitter(f, lambda p: (
-    filters.bpf(p, const(470), 50.0) +
-    filters.bpf(p, const(550), 50.0) +
-    filters.bpf(p, const(630), 50.0)
-)))
-
-play(splitter(f, lambda p: (
-    filters.bpf(p, const(440), 1000.0) +
-    filters.bpf(p, const(550), 1000.0) +
-    filters.bpf(p, const(660), 1000.0)
-)))
-
-def k(f):
-    c = Stream(lambda: (f(), c))
-    return c
-
-middle = m2f(73)
-
-s = splitter(tutti, lambda p: (
-    filters.bpf(p, const(440), 50.0) +
-    filters.bpf(p, k(lambda: middle), 50.0) +
-    filters.bpf(p, const(660), 50.0)
-))
-
-fs = frozen("splitter", s[:30.0])
-
-f = zoh(rand, 44100) * 1000
-oh = splitter(tutti, lambda p: (
-    filters.bpf(p, f, 50.0) +
-    filters.bpf(p, f, 50.0) +
-    filters.bpf(p, f, 50.0)
-))
-foh = frozen("oh", oh[:120.0])
-
-play(filters.comb(preamble, 0.95, -400))
-
-play(var_comb(preamble, 0.8, (osc(1)*80 + -100), 180))
-
-play()
