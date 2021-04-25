@@ -191,6 +191,7 @@ a5 = a4 + 12
 bb5 = bb4 + 12
 c6 = c5 + 12
 
+g3 = g4 - 12
 a3 = a4 - 12
 bb3 = bb4 - 12
 f3 = f4 - 12
@@ -198,11 +199,12 @@ g3 = g4 - 12
 eb2 = eb4 - 24
 f2 = f3 - 12
 c2 = c4 - 24
+g2 = g3 - 12
 bb2 = bb3 - 12
 
 #                Eb        F        C        Bb
 ps0 = to_stream([eb5]*7 + [c5]*7 + [c5]*7 + [bb4]*7).cycle()
-ps1 = to_stream([bb4]*7 + [a4]*7 + [g5]*7 + [f4 ]*7).cycle()
+ps1 = to_stream([bb4]*7 + [a4]*7 + [g4]*7 + [f4 ]*7).cycle()
 ps2 = to_stream([g4 ]*7 + [f4]*7 + [e4]*7 + [d4 ]*7).cycle()
 ps3 = to_stream([eb4]*7 + [c4]*7 + [c4]*7 + [bb3]*7).cycle()
 ps4 = to_stream([bb3]*7 + [a3]*7 + [g3]*7 + [f3 ]*7).cycle()
@@ -226,16 +228,16 @@ BASS_SPAN = (14*7, 52*7)
 start = datetime(2020,1,1)
 
 random.seed(0)
-high = high_layer(start=start+timedelta(HIGH_SPAN[0]), end=start+timedelta(HIGH_SPAN[1]))
-choir0 = sing_layer(ps0[CHOIR0_SPAN[0]:], start=start+timedelta(CHOIR0_SPAN[0]), end=start+timedelta(CHOIR0_SPAN[1]))
-choir1 = sing_layer(ps1[CHOIR1_SPAN[0]:], start=start+timedelta(CHOIR1_SPAN[0]), end=start+timedelta(CHOIR1_SPAN[1]))
-choir2 = sing_layer(ps2[CHOIR2_SPAN[0]:], start=start+timedelta(CHOIR2_SPAN[0]), end=start+timedelta(CHOIR2_SPAN[1]))
-choir3 = sing_layer(ps3[CHOIR3_SPAN[0]:], start=start+timedelta(CHOIR3_SPAN[0]), end=start+timedelta(CHOIR3_SPAN[1]))
-choir4 = sing_layer(ps4[CHOIR4_SPAN[0]:], start=start+timedelta(CHOIR4_SPAN[0]), end=start+timedelta(CHOIR4_SPAN[1]))
-spoken = spoken_layer(start=start+timedelta(SPOKEN_SPAN[0]), end=start+timedelta(SPOKEN_SPAN[1]))
-bass = bass_layer(pb[BASS_SPAN[0]:], start=start+timedelta(BASS_SPAN[0]), end=start+timedelta(BASS_SPAN[1]))
+high = high_layer(start+timedelta(HIGH_SPAN[0]), start+timedelta(HIGH_SPAN[1]))
+choir0 = sing_layer(ps0[CHOIR0_SPAN[0]:], start+timedelta(CHOIR0_SPAN[0]), start+timedelta(CHOIR0_SPAN[1]))
+choir1 = sing_layer(ps1[CHOIR1_SPAN[0]:], start+timedelta(CHOIR1_SPAN[0]), start+timedelta(CHOIR1_SPAN[1]))
+choir2 = sing_layer(ps2[CHOIR2_SPAN[0]:], start+timedelta(CHOIR2_SPAN[0]), start+timedelta(CHOIR2_SPAN[1]))
+choir3 = sing_layer(ps3[CHOIR3_SPAN[0]:], start+timedelta(CHOIR3_SPAN[0]), start+timedelta(CHOIR3_SPAN[1]))
+choir4 = sing_layer(ps4[CHOIR4_SPAN[0]:], start+timedelta(CHOIR4_SPAN[0]), start+timedelta(CHOIR4_SPAN[1]))
+spoken = spoken_layer(start+timedelta(SPOKEN_SPAN[0]), start+timedelta(SPOKEN_SPAN[1]))
+bass = bass_layer(pb[BASS_SPAN[0]:], start+timedelta(BASS_SPAN[0]), start+timedelta(BASS_SPAN[1]))
 from FauxDot import beat
-percussion = beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
+percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
 # play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
 # play()
 import filters
@@ -244,9 +246,11 @@ import filters
 def db(decibels):
     return 10**(decibels/20)
 
+play()
+play(filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION))/2)
 c0 = arrange([
     (HIGH_SPAN[0]*DAY_DURATION, high),
-    (SPOKEN_SPAN[0]*DAY_DURATION, spoken),
+    (SPOKEN_SPAN[0]*DAY_DURATION, filters.comb(spoken, .5, -convert_time(SYLLABLE_DURATION))),
     (BASS_SPAN[0]*DAY_DURATION, bass*db(3)),
     (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
 ]) * activity
@@ -262,7 +266,7 @@ c1 = arrange([
 
 c = (c0 + c1)/2
 
-wav.save(c + frame(0, 0), "search20.wav", verbose=True)
+wav.save(c + frame(0, 0), "search21.wav", verbose=True)
 
 # c = (pan(choir3, 0) +
 #      pan(choir1, 1/4) +
