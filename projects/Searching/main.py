@@ -46,6 +46,54 @@ for prev_week, week in zip(weeks, list(weeks)[1:]):
 top = weeks.copy()
 top.pop(list(top)[0])
 
+HIGH_SPAN = (0, 52*7)
+PERCUSSION_SPAN = (1*7, 51*7)
+CHOIR0_SPAN = (2*7, 51*7)
+CHOIR1_SPAN = (4*7, 50*7)
+CHOIR2_SPAN = (6*7, 49*7)
+CHOIR3_SPAN = (8*7, 48*7)
+CHOIR4_SPAN = (10*7, 47*7)
+SPOKEN_SPAN = (12*7, 366)
+BASS_SPAN = (14*7, 52*7)
+SYNTH_SPAN = (10*7,)
+
+### VIDEO
+
+# TODO: reduce duplication.
+high_terms = [rise[0] for rise in rising.values()]
+bass_terms = [rise[0] for rise in list(rising.values())[BASS_SPAN[0]//7:BASS_SPAN[1]//7]]
+
+from moviepy.editor import *
+clip = (
+    ImageClip("projects/Searching/usa.png")
+    .on_color(color=(255,255,255))
+    .set_duration(DAY_DURATION*7*len(high_terms))
+)
+
+videos = [clip]
+for i, term in enumerate(high_terms):
+    text = (' ' if ' ' in term or '/' in term else '').join([term]*7)
+    videos.append(
+        TextClip(text, fontsize=20, color='black')
+        .set_start(i*DAY_DURATION*7)
+        .set_duration(DAY_DURATION*7)
+        .set_position(('center', 'top'))
+    )
+for i, term in enumerate(bass_terms):
+    videos.append(
+        TextClip(term, fontsize=70, color='black')
+        .set_start((i*7+BASS_SPAN[0])*DAY_DURATION)
+        .set_duration(DAY_DURATION*7)
+        .set_position(('center', 'bottom'))
+    )
+
+# Overlay the text clip on the first video clip
+video = CompositeVideoClip(videos) # .subclip(0,20)
+
+# Write the result to a file (many options available !)
+video.write_videofile("video.mp4", fps=24, audio="search21.mp3")
+
+### AUDIO
 
 sums = [sum(week.values()) for week in weeks.values()]
 import scipy.interpolate
@@ -179,17 +227,6 @@ for msg in mid:
 
 chords = list(map(sorted, times.values()))
 voices = [zoh(to_stream([chord[i] for chord in chords]), 7) for i in range(6)]
-
-HIGH_SPAN = (0, 52*7)
-PERCUSSION_SPAN = (1*7, 51*7)
-CHOIR0_SPAN = (2*7, 51*7)
-CHOIR1_SPAN = (4*7, 50*7)
-CHOIR2_SPAN = (6*7, 49*7)
-CHOIR3_SPAN = (8*7, 48*7)
-CHOIR4_SPAN = (10*7, 47*7)
-SPOKEN_SPAN = (12*7, 366)
-BASS_SPAN = (14*7, 52*7)
-SYNTH_SPAN = (10*7,)
 
 start = datetime(2020,1,1)
 
