@@ -123,10 +123,10 @@ def sing_term(term, pitch):
 # NOTE: This sings each term in that day's pitch, but with divide_duration=False,
 # but terms may spill over into subsequent days, potentially 'smearing' the pitches.
 @stream
-def sing_layer(pitch_stream, start=datetime(2020,1,1), end=datetime(2021,1,1)):
+def sing_layer(pitches, start=datetime(2020,1,1), end=datetime(2021,1,1)):
     t = 0
     items = []
-    for pitch, days in zip(pitch_stream, range((end - start).days)):
+    for pitch, days in zip(pitches, range((end - start).days)):
         date = start + timedelta(days)
         term = get_term(date)
         if term:
@@ -148,7 +148,6 @@ def spoken_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
 
 @stream
 def high_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    spoken_items = []
     high = empty
     for day in range(0, (end - start).days, 7):
         rising = get_rising(start + timedelta(day))
@@ -158,25 +157,60 @@ def high_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
     return high
 
 @stream
-def bass_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    spoken_items = []
+def bass_layer(pitches, start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    bass_items = []
     bass = empty
-    for day in range(0, (end - start).days, 7):
+    for pitch, day in zip(pitches[::7], range(0, (end - start).days, 7)):
         rising = get_rising(start + timedelta(day))
-        bass >>= sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION*7)[:DAY_DURATION*7]
+        # bass >>= sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION*7)[:DAY_DURATION*7]
+        bass >>= (sing(fix_term(rising[0]), m2f(pitch), DAY_DURATION*7)[:DAY_DURATION*7] +
+                  sing(fix_term(rising[0]), m2f(pitch+12), DAY_DURATION*7)[:DAY_DURATION*7])
     return bass
 
-ps1 = const(60)
-ps2 = to_stream([64,64,63,63,65,65,64,64]).cycle()
-ps3 = to_stream([67,67,69]).cycle()
-ps4 = to_stream([72,71,69,71]).cycle()
-# Interesting how this affects perception of the higher levels:
-# ps5 = cycle(to_stream([48,48,48,48,55,55,55,55]))
-ps5 = to_stream([48,48,48,55,55,55]).cycle()
+# ps1 = const(60)
+# ps2 = to_stream([64,64,63,63,65,65,64,64]).cycle()
+# ps3 = to_stream([67,67,69]).cycle()
+# ps4 = to_stream([72,71,69,71]).cycle()
+# ps5 = to_stream([48,48,48,55,55,55]).cycle()
+
+c4 = 60
+d4 = c4 + 2
+eb4 = c4 + 3
+e4 = c4 + 4
+f4 = c4 + 5
+g4 = c4 + 7
+a4 = c4 + 9
+bb4 = c4 + 10
+c5 = c4 + 12
+d5 = d4 + 12
+eb5 = eb4 + 12
+e5 = e4 + 12
+f5 = f4 + 12
+g5 = g4 + 12
+a5 = a4 + 12
+bb5 = bb4 + 12
+c6 = c5 + 12
+
+a3 = a4 - 12
+bb3 = bb4 - 12
+f3 = f4 - 12
+g3 = g4 - 12
+eb2 = eb4 - 24
+f2 = f3 - 12
+c2 = c4 - 24
+bb2 = bb3 - 12
+
+#                Eb        F        C        Bb
+ps0 = to_stream([eb5]*7 + [c5]*7 + [c5]*7 + [bb4]*7).cycle()
+ps1 = to_stream([bb4]*7 + [a4]*7 + [g5]*7 + [f4 ]*7).cycle()
+ps2 = to_stream([g4 ]*7 + [f4]*7 + [e4]*7 + [d4 ]*7).cycle()
+ps3 = to_stream([eb4]*7 + [c4]*7 + [c4]*7 + [bb3]*7).cycle()
+ps4 = to_stream([bb3]*7 + [a3]*7 + [g3]*7 + [f3 ]*7).cycle()
+pb  = to_stream([eb2]*7 + [f2]*7 + [c2]*7 + [bb2]*7).cycle()
 
 # play(MixStream([
 #     fm_osc(zoh(ps.map(m2f), convert_time(DAY_DURATION)))
-#     for ps in (ps1, ps2, ps3, ps4, ps5)
+#     for ps in (pb, ps0, ps1, ps2, ps3, ps4)
 # ])/6)
 
 HIGH_SPAN = (0, 52*7)
@@ -193,13 +227,13 @@ start = datetime(2020,1,1)
 
 random.seed(0)
 high = high_layer(start=start+timedelta(HIGH_SPAN[0]), end=start+timedelta(HIGH_SPAN[1]))
-choir0 = sing_layer(ps1, start=start+timedelta(CHOIR0_SPAN[0]), end=start+timedelta(CHOIR0_SPAN[1]))
-choir1 = sing_layer(ps2, start=start+timedelta(CHOIR1_SPAN[0]), end=start+timedelta(CHOIR1_SPAN[1]))
-choir2 = sing_layer(ps4, start=start+timedelta(CHOIR2_SPAN[0]), end=start+timedelta(CHOIR2_SPAN[1]))
-choir3 = sing_layer(ps3, start=start+timedelta(CHOIR3_SPAN[0]), end=start+timedelta(CHOIR3_SPAN[1]))
-choir4 = sing_layer(ps5, start=start+timedelta(CHOIR4_SPAN[0]), end=start+timedelta(CHOIR4_SPAN[1]))
+choir0 = sing_layer(ps0[CHOIR0_SPAN[0]:], start=start+timedelta(CHOIR0_SPAN[0]), end=start+timedelta(CHOIR0_SPAN[1]))
+choir1 = sing_layer(ps1[CHOIR1_SPAN[0]:], start=start+timedelta(CHOIR1_SPAN[0]), end=start+timedelta(CHOIR1_SPAN[1]))
+choir2 = sing_layer(ps2[CHOIR2_SPAN[0]:], start=start+timedelta(CHOIR2_SPAN[0]), end=start+timedelta(CHOIR2_SPAN[1]))
+choir3 = sing_layer(ps3[CHOIR3_SPAN[0]:], start=start+timedelta(CHOIR3_SPAN[0]), end=start+timedelta(CHOIR3_SPAN[1]))
+choir4 = sing_layer(ps4[CHOIR4_SPAN[0]:], start=start+timedelta(CHOIR4_SPAN[0]), end=start+timedelta(CHOIR4_SPAN[1]))
 spoken = spoken_layer(start=start+timedelta(SPOKEN_SPAN[0]), end=start+timedelta(SPOKEN_SPAN[1]))
-bass = bass_layer(start=start+timedelta(BASS_SPAN[0]), end=start+timedelta(BASS_SPAN[1]))
+bass = bass_layer(pb[BASS_SPAN[0]:], start=start+timedelta(BASS_SPAN[0]), end=start+timedelta(BASS_SPAN[1]))
 from FauxDot import beat
 percussion = beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
 # play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
@@ -219,16 +253,16 @@ c0 = arrange([
 
 # TODO: bring back choir panning
 c1 = arrange([
-    (CHOIR0_SPAN[0]*DAY_DURATION, choir0),
-    (CHOIR1_SPAN[0]*DAY_DURATION, choir1),
-    (CHOIR2_SPAN[0]*DAY_DURATION, choir2),
-    (CHOIR3_SPAN[0]*DAY_DURATION, choir3),
-    (CHOIR4_SPAN[0]*DAY_DURATION, choir4),
+    (CHOIR0_SPAN[0]*DAY_DURATION, pan(choir0, 2/4)),
+    (CHOIR1_SPAN[0]*DAY_DURATION, pan(choir1, 1/4)),
+    (CHOIR2_SPAN[0]*DAY_DURATION, pan(choir2, 3/4)),
+    (CHOIR3_SPAN[0]*DAY_DURATION, pan(choir3, 0/4)),
+    (CHOIR4_SPAN[0]*DAY_DURATION, pan(choir4, 4/4)),
 ])
 
 c = (c0 + c1)/2
 
-wav.save(c + frame(0, 0), "search18.wav", verbose=True)
+wav.save(c + frame(0, 0), "search20.wav", verbose=True)
 
 # c = (pan(choir3, 0) +
 #      pan(choir1, 1/4) +
