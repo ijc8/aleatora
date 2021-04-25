@@ -414,13 +414,13 @@ class SliceStream(Stream):
         elif self.stop is None and self.step == 1:
             # Special case: no need to wrap this in a slice.
             return self.stream()
-        elif self.stop > 0 and self.step == 1:
+        elif (self.stop is None or self.stop > 0) and self.step == 1:
             # Common case: just return the next value.
             result = self.stream()
             if isinstance(result, Return):
                 return result
             value, next_stream = result
-            return (value, SliceStream(next_stream, 0, self.stop - 1, 1))
+            return (value, SliceStream(next_stream, 0, self.stop - 1 if self.stop is not None else None, 1))
         elif self.stop is None or self.stop > 0:
             # step != 1, so we have to skip some values.
             # (Could also implement this by calling a new SliceStream with start set to step.)
@@ -429,7 +429,7 @@ class SliceStream(Stream):
                 pass
             if siter.returned:
                 return siter.returned
-            return (value, SliceStream(siter.rest, 0, self.stop - self.step, self.step))
+            return (value, SliceStream(siter.rest, 0, max(self.stop - self.step, 0) if self.stop is not None else None, self.step))
         # We've reached the end of the slice.
         return Return(self.stream)
 
