@@ -1,8 +1,10 @@
 SYLLABLE_DURATION = 0.2
 DAY_DURATION = 0.4
 
+from datetime import datetime, timedelta
 import pickle
 import os
+import random
 
 # First, load the data.
 TERMS_DIR = 'terms'
@@ -46,6 +48,26 @@ for prev_week, week in zip(weeks, list(weeks)[1:]):
 top = weeks.copy()
 top.pop(list(top)[0])
 
+def get_week(day):
+    last_week = None
+    for week in weeks.keys():
+        if day < week:
+            return last_week
+        last_week = week
+    return last_week
+
+# Gets random term with probability weighted by interest on that day.
+def get_term(day):
+    terms = top[get_week(day)]
+    r = random.random()
+    for term, probability in terms.items():
+        r -= probability
+        if r < 0:
+            return term
+
+def get_rising(day):
+    return rising[get_week(day)][:3]
+
 HIGH_SPAN = (0, 52*7)
 PERCUSSION_SPAN = (1*7, 51*7)
 CHOIR0_SPAN = (2*7, 51*7)
@@ -57,18 +79,57 @@ SPOKEN_SPAN = (12*7, 366)
 BASS_SPAN = (14*7, 52*7)
 SYNTH_SPAN = (10*7,)
 
+START = datetime(2020,1,1)
+
 ### VIDEO
 
 # TODO: reduce duplication.
 high_terms = [rise[0] for rise in rising.values()]
 bass_terms = [rise[0] for rise in list(rising.values())[BASS_SPAN[0]//7:BASS_SPAN[1]//7]]
 
+def spoken_terms(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    terms = []
+    for day in range(0, (end - start).days, 7):
+        rising = get_rising(start + timedelta(day))
+        terms.append(rising[:3])
+    return terms
+
+spoken_terms = spoken_terms(START+timedelta(SPOKEN_SPAN[0]), START+timedelta(SPOKEN_SPAN[1]))
+
+def sing_terms(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+    terms = []
+    for days in range((end - start).days):
+        date = start + timedelta(days)
+        term = get_term(date)
+        if term:
+            terms.append((date, term))
+    return terms
+
+random.seed(0)
+choir0_terms = sing_terms(START+timedelta(CHOIR0_SPAN[0]), START+timedelta(CHOIR0_SPAN[1]))
+choir1_terms = sing_terms(START+timedelta(CHOIR1_SPAN[0]), START+timedelta(CHOIR1_SPAN[1]))
+choir2_terms = sing_terms(START+timedelta(CHOIR2_SPAN[0]), START+timedelta(CHOIR2_SPAN[1]))
+choir3_terms = sing_terms(START+timedelta(CHOIR3_SPAN[0]), START+timedelta(CHOIR3_SPAN[1]))
+choir4_terms = sing_terms(START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
+
 from moviepy.editor import *
+# image = ImageClip("projects/Searching/usa.png", ismask=True)
+
+# clip = (
+#     ColorClip(size=image.size, color=(255, 0, 0))
+#     .set_mask(image)
+#     .set_duration(DAY_DURATION*7*len(high_terms))
+# )
+
+# clip.write_videofile("video2.mp4", fps=24, audio="search21.mp3")
+
 clip = (
     ImageClip("projects/Searching/usa.png")
     .on_color(color=(255,255,255))
     .set_duration(DAY_DURATION*7*len(high_terms))
 )
+
+# clip.preview()
 
 videos = [clip]
 for i, term in enumerate(high_terms):
@@ -79,6 +140,17 @@ for i, term in enumerate(high_terms):
         .set_duration(DAY_DURATION*7)
         .set_position(('center', 'top'))
     )
+
+for i, terms in enumerate(spoken_terms):
+    for position, rotation, term in zip(('center', 'left', 'right'), (0, -90, 90), terms):
+        videos.append(
+            TextClip(term, fontsize=40, color='black')
+            .set_start((i*7+SPOKEN_SPAN[0])*DAY_DURATION)
+            .set_duration(DAY_DURATION*7)
+            .set_position((position, 'center'))
+            .rotate(rotation+1e-14)  # HACK
+        )
+
 for i, term in enumerate(bass_terms):
     videos.append(
         TextClip(term, fontsize=70, color='black')
@@ -134,28 +206,6 @@ speech_cache = {}
 for i, term in enumerate(data.keys()):
     print(i, term)
     speech_cache[term] = speech(term, filename=os.path.join(SPEECH_DIR, term.replace('/', '_') + '.mp3'))
-
-def get_week(day):
-    last_week = None
-    for week in weeks.keys():
-        if day < week:
-            return last_week
-        last_week = week
-    return last_week
-
-# Gets random term with probability weighted by interest on that day.
-def get_term(day):
-    terms = top[get_week(day)]
-    r = random.random()
-    for term, probability in terms.items():
-        r -= probability
-        if r < 0:
-            return term
-
-def get_rising(day):
-    return rising[get_week(day)][:3]
-
-from datetime import datetime, timedelta
 
 # Hacks to get recognizable pronunciation.
 # (These voices pronounce "coronavirus" like "carnivorous".)
@@ -228,17 +278,15 @@ for msg in mid:
 chords = list(map(sorted, times.values()))
 voices = [zoh(to_stream([chord[i] for chord in chords]), 7) for i in range(6)]
 
-start = datetime(2020,1,1)
-
 random.seed(0)
-high = high_layer(start+timedelta(HIGH_SPAN[0]), start+timedelta(HIGH_SPAN[1]))
-choir0 = sing_layer(voices[1][CHOIR0_SPAN[0]:], start+timedelta(CHOIR0_SPAN[0]), start+timedelta(CHOIR0_SPAN[1]))
-choir1 = sing_layer(voices[2][CHOIR1_SPAN[0]:], start+timedelta(CHOIR1_SPAN[0]), start+timedelta(CHOIR1_SPAN[1]))
-choir2 = sing_layer(voices[3][CHOIR2_SPAN[0]:], start+timedelta(CHOIR2_SPAN[0]), start+timedelta(CHOIR2_SPAN[1]))
-choir3 = sing_layer(voices[4][CHOIR3_SPAN[0]:], start+timedelta(CHOIR3_SPAN[0]), start+timedelta(CHOIR3_SPAN[1]))
-choir4 = sing_layer(voices[5][CHOIR4_SPAN[0]:], start+timedelta(CHOIR4_SPAN[0]), start+timedelta(CHOIR4_SPAN[1]))
-spoken = spoken_layer(start+timedelta(SPOKEN_SPAN[0]), start+timedelta(SPOKEN_SPAN[1]))
-bass = bass_layer(voices[0][BASS_SPAN[0]:], start+timedelta(BASS_SPAN[0]), start+timedelta(BASS_SPAN[1]))
+high = high_layer(START+timedelta(HIGH_SPAN[0]), START+timedelta(HIGH_SPAN[1]))
+choir0 = sing_layer(voices[1][CHOIR0_SPAN[0]:], START+timedelta(CHOIR0_SPAN[0]), START+timedelta(CHOIR0_SPAN[1]))
+choir1 = sing_layer(voices[2][CHOIR1_SPAN[0]:], START+timedelta(CHOIR1_SPAN[0]), START+timedelta(CHOIR1_SPAN[1]))
+choir2 = sing_layer(voices[3][CHOIR2_SPAN[0]:], START+timedelta(CHOIR2_SPAN[0]), START+timedelta(CHOIR2_SPAN[1]))
+choir3 = sing_layer(voices[4][CHOIR3_SPAN[0]:], START+timedelta(CHOIR3_SPAN[0]), START+timedelta(CHOIR3_SPAN[1]))
+choir4 = sing_layer(voices[5][CHOIR4_SPAN[0]:], START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
+spoken = spoken_layer(START+timedelta(SPOKEN_SPAN[0]), START+timedelta(SPOKEN_SPAN[1]))
+bass = bass_layer(voices[0][BASS_SPAN[0]:], START+timedelta(BASS_SPAN[0]), START+timedelta(BASS_SPAN[1]))
 from FauxDot import beat
 percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
 # play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
