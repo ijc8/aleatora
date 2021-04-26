@@ -48,6 +48,11 @@ for prev_week, week in zip(weeks, list(weeks)[1:]):
 top = weeks.copy()
 top.pop(list(top)[0])
 
+sums = [sum(week.values()) for week in weeks.values()]
+import scipy.interpolate
+import numpy as np
+activity = scipy.interpolate.interp1d((np.arange(len(sums)) - .5) * 7, sums)(np.arange(366))
+
 def get_week(day):
     last_week = None
     for week in weeks.keys():
@@ -81,8 +86,6 @@ SYNTH_SPAN = (10*7,)
 
 START = datetime(2020,1,1)
 
-### VIDEO
-
 # TODO: reduce duplication.
 high_terms = [rise[0] for rise in rising.values()]
 bass_terms = [rise[0] for rise in list(rising.values())[BASS_SPAN[0]//7:BASS_SPAN[1]//7]]
@@ -112,30 +115,46 @@ choir2_terms = sing_terms(START+timedelta(CHOIR2_SPAN[0]), START+timedelta(CHOIR
 choir3_terms = sing_terms(START+timedelta(CHOIR3_SPAN[0]), START+timedelta(CHOIR3_SPAN[1]))
 choir4_terms = sing_terms(START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
 
+### VIDEO
+
 from moviepy.editor import *
-# image = ImageClip("projects/Searching/usa.png", ismask=True)
+image = ImageClip("projects/Searching/usa.png")
+opacity = image.get_frame(0).sum(axis=2)/3
 
-# clip = (
-#     ColorClip(size=image.size, color=(255, 0, 0))
-#     .set_mask(image)
-#     .set_duration(DAY_DURATION*7*len(high_terms))
-# )
+def get_jitter(time, offset_x=0, offset_y=0, scale=200):
+    if time / DAY_DURATION >= 366:
+        return (offset_x, offset_y)
+    scale *= activity[int(time / DAY_DURATION)]**3
+    return (offset_x + scale*random.random(), offset_y + scale*random.random())
 
-# clip.write_videofile("video2.mp4", fps=24, audio="search21.mp3")
+clipW = (
+    ColorClip(size=image.size, color=(255, 255, 255))
+    .set_opacity(opacity)
+    .set_duration(DAY_DURATION*366)
+    .on_color(color=(0, 0, 0))
+)
 
-clip = (
-    ImageClip("projects/Searching/usa.png")
-    .on_color(color=(255,255,255))
+clipR = (
+    ColorClip(size=image.size, color=(255, 0, 0))
+    .set_opacity(opacity)
     .set_duration(DAY_DURATION*7*len(high_terms))
+    .set_position(lambda t: get_jitter(t, -5, -5))
+)
+
+clipB = (
+    ColorClip(size=image.size, color=(0, 0, 255))
+    .set_opacity(opacity)
+    .set_duration(DAY_DURATION*7*len(high_terms))
+    .set_position(lambda t: get_jitter(t, 5, 5))
 )
 
 # clip.preview()
 
-videos = [clip]
+videos = [clipW, clipR, clipB]
 for i, term in enumerate(high_terms):
     text = (' ' if ' ' in term or '/' in term else '').join([term]*7)
     videos.append(
-        TextClip(text, fontsize=20, color='black')
+        TextClip(text, fontsize=20, color='white')
         .set_start(i*DAY_DURATION*7)
         .set_duration(DAY_DURATION*7)
         .set_position(('center', 'top'))
@@ -144,7 +163,7 @@ for i, term in enumerate(high_terms):
 for i, terms in enumerate(spoken_terms):
     for position, rotation, term in zip(('center', 'left', 'right'), (0, -90, 90), terms):
         videos.append(
-            TextClip(term, fontsize=40, color='black')
+            TextClip(term, fontsize=40, color='white')
             .set_start((i*7+SPOKEN_SPAN[0])*DAY_DURATION)
             .set_duration(DAY_DURATION*7)
             .set_position((position, 'center'))
@@ -153,28 +172,21 @@ for i, terms in enumerate(spoken_terms):
 
 for i, term in enumerate(bass_terms):
     videos.append(
-        TextClip(term, fontsize=70, color='black')
+        TextClip(term, fontsize=70, color='white')
         .set_start((i*7+BASS_SPAN[0])*DAY_DURATION)
         .set_duration(DAY_DURATION*7)
         .set_position(('center', 'bottom'))
     )
 
 # Overlay the text clip on the first video clip
-video = CompositeVideoClip(videos) # .subclip(0,20)
+video = CompositeVideoClip(videos)
 
 # Write the result to a file (many options available !)
-video.write_videofile("video.mp4", fps=24, audio="search21.mp3")
+video.write_videofile("video.mp4", fps=12, audio="search21.mp3")
 
 ### AUDIO
 
-sums = [sum(week.values()) for week in weeks.values()]
-import scipy.interpolate
-import numpy as np
-interp = scipy.interpolate.interp1d((np.arange(len(sums)) - .5) * 7, sums)
-activity = zoh(to_stream(interp(np.arange(366))), convert_time(DAY_DURATION))
-# import matplotlib.pyplot as plt
-# plt.plot(daily)
-
+activity_env = zoh(to_stream(activity), convert_time(DAY_DURATION))
 
 # Speech & singing
 from speech import speech, sing
@@ -308,7 +320,7 @@ c0 = arrange([
     (BASS_SPAN[0]*DAY_DURATION, bass*db(3)),
     # (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
     (SYNTH_SPAN[0]*DAY_DURATION, synths[SYNTH_SPAN[0]*DAY_DURATION:]*db(-19))
-]) * (activity >> const(0.3)[:DAY_DURATION*8])
+]) * (activity_env >> const(0.3)[:DAY_DURATION*8])
 
 c1 = arrange([
     (CHOIR0_SPAN[0]*DAY_DURATION, pan(choir0, 2/4)),
