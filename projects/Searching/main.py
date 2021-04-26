@@ -170,7 +170,20 @@ for i, terms in enumerate(spoken_terms):
             .rotate(rotation+1e-14)  # HACK
         )
 
+for choir_terms, x in zip((choir0_terms, choir1_terms, choir2_terms, choir3_terms, choir4_terms), (0.1, 0.3, 0.5, 0.7, 0.9)):
+    # TODO: get the number of syllables in each term to set the text durations correctly.
+    # TODO: adjust y position based on pitch?
+    for date, term in choir_terms:
+        clip = (
+            TextClip(term, fontsize=30, color='white')
+            .set_start((date - START).days*DAY_DURATION)
+            .set_duration(DAY_DURATION)
+        )
+        clip = clip.set_position((x * clipW.w - clip.w/2, clipW.h/4 - clip.h/2))
+        videos.append(clip)
+
 for i, term in enumerate(bass_terms):
+    # TODO: adjust y position based on pitch?
     videos.append(
         TextClip(term, fontsize=70, color='white')
         .set_start((i*7+BASS_SPAN[0])*DAY_DURATION)
@@ -178,11 +191,9 @@ for i, term in enumerate(bass_terms):
         .set_position(('center', 'bottom'))
     )
 
-# Overlay the text clip on the first video clip
 video = CompositeVideoClip(videos)
 
-# Write the result to a file (many options available !)
-video.write_videofile("video.mp4", fps=12, audio="search21.mp3")
+video.write_videofile("search21.mp4", fps=12, audio="search21.mp3")
 
 ### AUDIO
 
