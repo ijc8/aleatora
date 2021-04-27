@@ -1,3 +1,6 @@
+VERSION = 22
+VIDEO_VERSION = 0
+
 SYLLABLE_DURATION = 0.2
 DAY_DURATION = 0.4
 
@@ -42,7 +45,7 @@ for prev_week, week in zip(weeks, list(weeks)[1:]):
     diff = weekdiff(weeks[week], weeks[prev_week])
     # TODO: May return to this to include more information.
     rising[week] = sorted(diff, key=lambda t: -diff[t])
-    print(week, rising[week][0:2])
+    # print(week, rising[week][0:2])
 
 # Now, remove the first week (which was entirely in 2019).
 top = weeks.copy()
@@ -83,6 +86,9 @@ CHOIR4_SPAN = (10*7, 47*7)
 SPOKEN_SPAN = (12*7, 366)
 BASS_SPAN = (14*7, 52*7)
 SYNTH_SPAN = (10*7,)
+
+CHOIR_SPANS = [CHOIR0_SPAN, CHOIR1_SPAN, CHOIR2_SPAN, CHOIR3_SPAN, CHOIR4_SPAN]
+CHOIR_PANS = [2/4, 1/4, 3/4, 0/4, 4/4]
 
 START = datetime(2020,1,1)
 
@@ -148,8 +154,6 @@ clipW = (
     .on_color(color=(0, 0, 0))
 )
 
-# clipW.subclip(0,20).write_videofile("search21_2.mp4", fps=12, audio="search21.mp3")
-
 clipR = (
     ColorClip(size=image.size, color=(255, 0, 0))
     .set_mask(mask)
@@ -187,7 +191,8 @@ for i, terms in enumerate(spoken_terms):
             .rotate(rotation+1e-14)  # HACK
         )
 
-for choir_terms, x in zip((choir0_terms, choir1_terms, choir2_terms, choir3_terms, choir4_terms), (0.1, 0.3, 0.5, 0.7, 0.9)):
+for choir_terms, pan in zip((choir0_terms, choir1_terms, choir2_terms, choir3_terms, choir4_terms), CHOIR_PANS):
+    x = 0.1 + 4/5 * pan
     # TODO: get the number of syllables in each term to set the text durations correctly.
     # TODO: adjust y position based on pitch?
     for date, term in choir_terms:
@@ -210,7 +215,7 @@ for i, term in enumerate(bass_terms):
 
 video = CompositeVideoClip(videos)
 
-video.write_videofile("search21_2.mp4", fps=12, audio="search21.mp3")
+video.write_videofile(f"search{VERSION}_{VIDEO_VERSION}.mp4", fps=12, audio=f"search{VERSION}.mp3")
 
 ### AUDIO
 
@@ -327,8 +332,8 @@ choir3 = sing_layer(voices[4][CHOIR3_SPAN[0]:], START+timedelta(CHOIR3_SPAN[0]),
 choir4 = sing_layer(voices[5][CHOIR4_SPAN[0]:], START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
 spoken = spoken_layer(START+timedelta(SPOKEN_SPAN[0]), START+timedelta(SPOKEN_SPAN[1]))
 bass = bass_layer(voices[0][BASS_SPAN[0]:], START+timedelta(BASS_SPAN[0]), START+timedelta(BASS_SPAN[1]))
-from FauxDot import beat
-percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
+# from FauxDot import beat
+# percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
 # play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
 # play()
 import filters
@@ -338,11 +343,11 @@ def db(decibels):
     return 10**(decibels/20)
 
 synths = MixStream([
-    fm_osc(zoh(voice.map(m2f), convert_time(DAY_DURATION)))
-    for voice in voices
+    pan(fm_osc(zoh(voice.map(m2f), convert_time(DAY_DURATION))), p)
+    for voice, p in zip(voices, [0.5] + CHOIR_PANS)
 ])/6
 
-wav.save(synths, "chords21.wav", verbose=True)
+# wav.save(synths, f"chords{VERSION}.wav", verbose=True)
 
 c0 = arrange([
     (HIGH_SPAN[0]*DAY_DURATION, high),
@@ -352,14 +357,13 @@ c0 = arrange([
     (SYNTH_SPAN[0]*DAY_DURATION, synths[SYNTH_SPAN[0]*DAY_DURATION:]*db(-19))
 ]) * (activity_env >> const(0.3)[:DAY_DURATION*8])
 
+choir = [choir0, choir1, choir2, choir3, choir4]
+
 c1 = arrange([
-    (CHOIR0_SPAN[0]*DAY_DURATION, pan(choir0, 2/4)),
-    (CHOIR1_SPAN[0]*DAY_DURATION, pan(choir1, 1/4)),
-    (CHOIR2_SPAN[0]*DAY_DURATION, pan(choir2, 3/4)),
-    (CHOIR3_SPAN[0]*DAY_DURATION, pan(choir3, 0/4)),
-    (CHOIR4_SPAN[0]*DAY_DURATION, pan(choir4, 4/4)),
+    (span[0]*DAY_DURATION, pan(choir, p))
+    for span, choir, p in zip(CHOIR_SPANS, choir, CHOIR_PANS)
 ])
 
 c = (c0 + c1)/2
 
-wav.save(c + frame(0, 0), "search21.wav", verbose=True)
+wav.save(c + frame(0, 0), f"search{VERSION}.wav", verbose=True)
