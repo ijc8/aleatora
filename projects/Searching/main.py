@@ -119,38 +119,55 @@ choir4_terms = sing_terms(START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR
 
 from moviepy.editor import *
 image = ImageClip("projects/Searching/usa.png")
-opacity = image.get_frame(0).sum(axis=2)/3
 
-def get_jitter(time, offset_x=0, offset_y=0, scale=200):
-    if time / DAY_DURATION >= 366:
-        return (offset_x, offset_y)
-    scale *= activity[int(time / DAY_DURATION)]**3
-    return (offset_x + scale*random.random(), offset_y + scale*random.random())
+def make_jitter(offset_x, offset_y, scale=200):
+    x = offset_x
+    y = offset_y
+    def get_jitter(time):
+        nonlocal x, y
+        if time / DAY_DURATION >= 366:
+            decay = 1 - (time / DAY_DURATION - 366)/8
+            return (x*decay, y*decay)
+        factor = scale * activity[int(time / DAY_DURATION)]**3
+        x = offset_x + factor*random.random()
+        y = offset_y + factor*random.random()
+        return (x, y)
+    return get_jitter
+
+def tr(gf, t):
+    x = gf(t).sum(axis=2)/3
+    x[:, int(t/(366*DAY_DURATION)*x.shape[1]):] = 0
+    return x
+
+mask = image.fl(tr).set_ismask(True)
 
 clipW = (
     ColorClip(size=image.size, color=(255, 255, 255))
-    .set_opacity(opacity)
-    .set_duration(DAY_DURATION*366)
+    .set_mask(mask)
+    .set_duration(DAY_DURATION*(366+8))
     .on_color(color=(0, 0, 0))
 )
 
+# clipW.subclip(0,20).write_videofile("search21_2.mp4", fps=12, audio="search21.mp3")
+
 clipR = (
     ColorClip(size=image.size, color=(255, 0, 0))
-    .set_opacity(opacity)
-    .set_duration(DAY_DURATION*7*len(high_terms))
-    .set_position(lambda t: get_jitter(t, -5, -5))
+    .set_mask(mask)
+    .set_duration(DAY_DURATION*(366+8))
+    .set_position(make_jitter(-5, -5))
 )
 
 clipB = (
     ColorClip(size=image.size, color=(0, 0, 255))
-    .set_opacity(opacity)
-    .set_duration(DAY_DURATION*7*len(high_terms))
-    .set_position(lambda t: get_jitter(t, 5, 5))
+    .set_mask(mask)
+    .set_duration(DAY_DURATION*(366+8))
+    .set_position(make_jitter(5, 5))
 )
 
 # clip.preview()
 
 videos = [clipW, clipR, clipB]
+
 for i, term in enumerate(high_terms):
     text = (' ' if ' ' in term or '/' in term else '').join([term]*7)
     videos.append(
@@ -193,7 +210,7 @@ for i, term in enumerate(bass_terms):
 
 video = CompositeVideoClip(videos)
 
-video.write_videofile("search21.mp4", fps=12, audio="search21.mp3")
+video.write_videofile("search21_2.mp4", fps=12, audio="search21.mp3")
 
 ### AUDIO
 
@@ -324,6 +341,8 @@ synths = MixStream([
     fm_osc(zoh(voice.map(m2f), convert_time(DAY_DURATION)))
     for voice in voices
 ])/6
+
+wav.save(synths, "chords21.wav", verbose=True)
 
 c0 = arrange([
     (HIGH_SPAN[0]*DAY_DURATION, high),
