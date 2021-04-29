@@ -1,8 +1,5 @@
-VERSION = 22
+VERSION = 24
 VIDEO_VERSION = 0
-
-SYLLABLE_DURATION = 0.2
-DAY_DURATION = 0.4
 
 from datetime import datetime, timedelta
 import pickle
@@ -76,55 +73,69 @@ def get_term(day):
 def get_rising(day):
     return rising[get_week(day)][:3]
 
+SYLLABLE_DURATION = 0.2
+DAY_DURATION = 0.4
+
 HIGH_SPAN = (0, 52*7)
-PERCUSSION_SPAN = (1*7, 51*7)
-CHOIR0_SPAN = (2*7, 51*7)
-CHOIR1_SPAN = (4*7, 50*7)
-CHOIR2_SPAN = (6*7, 49*7)
-CHOIR3_SPAN = (8*7, 48*7)
-CHOIR4_SPAN = (10*7, 47*7)
+CHOIR_SPANS = [
+    (2*7, 51*7),
+    (4*7, 50*7),
+    (6*7, 49*7),
+    (8*7, 48*7),
+    (10*7, 47*7),
+]
 SPOKEN_SPAN = (12*7, 366)
 BASS_SPAN = (14*7, 52*7)
 SYNTH_SPAN = (10*7,)
 
-CHOIR_SPANS = [CHOIR0_SPAN, CHOIR1_SPAN, CHOIR2_SPAN, CHOIR3_SPAN, CHOIR4_SPAN]
 CHOIR_PANS = [2/4, 1/4, 3/4, 0/4, 4/4]
 
 START = datetime(2020,1,1)
 
 # TODO: reduce duplication.
-high_terms = [rise[0] for rise in rising.values()]
-bass_terms = [rise[0] for rise in list(rising.values())[BASS_SPAN[0]//7:BASS_SPAN[1]//7]]
+rising_top = [rise[0] for rise in list(rising.values())]
+high_terms = rising_top[HIGH_SPAN[0]//7:HIGH_SPAN[1]//7]
+bass_terms = rising_top[BASS_SPAN[0]//7:BASS_SPAN[1]//7]
 
-def spoken_terms(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    terms = []
-    for day in range(0, (end - start).days, 7):
-        rising = get_rising(start + timedelta(day))
-        terms.append(rising[:3])
-    return terms
+def spoken_terms(start, end):
+    return [get_rising(start + timedelta(day))[:3] 
+            for day in range(0, (end - start).days, 7)]
 
 spoken_terms = spoken_terms(START+timedelta(SPOKEN_SPAN[0]), START+timedelta(SPOKEN_SPAN[1]))
 
-def sing_terms(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    terms = []
-    for days in range((end - start).days):
-        date = start + timedelta(days)
-        term = get_term(date)
-        if term:
-            terms.append((date, term))
-    return terms
+def sing_terms(start, end):
+    return [get_term(start + timedelta(days))
+            for days in range((end - start).days)]
 
 random.seed(0)
-choir0_terms = sing_terms(START+timedelta(CHOIR0_SPAN[0]), START+timedelta(CHOIR0_SPAN[1]))
-choir1_terms = sing_terms(START+timedelta(CHOIR1_SPAN[0]), START+timedelta(CHOIR1_SPAN[1]))
-choir2_terms = sing_terms(START+timedelta(CHOIR2_SPAN[0]), START+timedelta(CHOIR2_SPAN[1]))
-choir3_terms = sing_terms(START+timedelta(CHOIR3_SPAN[0]), START+timedelta(CHOIR3_SPAN[1]))
-choir4_terms = sing_terms(START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
+choir_terms = [sing_terms(START+timedelta(span[0]), START+timedelta(span[1])) for span in CHOIR_SPANS]
+
+import mido
+mid = mido.MidiFile('projects/Searching/Searching_2020.mid')
+times = {}
+time = 0
+for msg in mid:
+    time += msg.time
+    if not msg.is_meta and msg.type == 'note_on' and msg.velocity:
+        if time not in times:
+            times[time] = []
+        times[time].append(msg.note)
+
+chords = list(map(sorted, times.values()))
+voices = [[chord[i] for chord in chords] for i in range(6)]
+bass_voice, *choir_voices = voices
+
+# Apply pitches:
+high_part = [(term, 67) for term in high_terms]
+bass_part = list(zip(bass_terms, bass_voice[BASS_SPAN[0]//7:BASS_SPAN[1]//7]))
+choir_parts = [[(term, voice[(span[0]+d)//7]) for d, term in enumerate(terms)]
+               for terms, voice, span in zip(choir_terms, choir_voices, CHOIR_SPANS)]
 
 ### VIDEO
 
 from moviepy.editor import *
-image = ImageClip("projects/Searching/usa.png")
+image = ImageClip(f"projects/Searching/usa_big.png")
+factor = image.h / 400
 
 def make_jitter(offset_x, offset_y, scale=200):
     x = offset_x
@@ -141,7 +152,7 @@ def make_jitter(offset_x, offset_y, scale=200):
     return get_jitter
 
 def tr(gf, t):
-    x = gf(t).sum(axis=2)/3
+    x = gf(t).sum(axis=2)
     x[:, int(t/(366*DAY_DURATION)*x.shape[1]):] = 0
     return x
 
@@ -168,18 +179,19 @@ clipB = (
     .set_position(make_jitter(5, 5))
 )
 
-# clip.preview()
-
 videos = [clipW, clipR, clipB]
+# video = CompositeVideoClip(videos)
+# video.subclip(40,40.25).write_videofile(f"search{VERSION}_{VIDEO_VERSION}.mp4", fps=12, audio=f"search{VERSION}.mp3")
 
-for i, term in enumerate(high_terms):
-    text = (' ' if ' ' in term or '/' in term else '').join([term]*7)
-    videos.append(
-        TextClip(text, fontsize=20, color='white')
-        .set_start(i*DAY_DURATION*7)
-        .set_duration(DAY_DURATION*7)
-        .set_position(('center', 'top'))
-    )
+for w, (term, pitch) in enumerate(high_part):
+    for d in range(7):
+        text = (' ' if ' ' in term or '/' in term else '').join([term]*(d+1) + [' ' * len(term)]*(6-d))
+        videos.append(
+            TextClip(text, fontsize=20, color='white')
+            .set_start((w*7+d)*DAY_DURATION)
+            .set_duration((7-d)*DAY_DURATION)
+            .set_position(('center', 'top'))
+        )
 
 for i, terms in enumerate(spoken_terms):
     for position, rotation, term in zip(('center', 'left', 'right'), (0, -90, 90), terms):
@@ -188,29 +200,30 @@ for i, terms in enumerate(spoken_terms):
             .set_start((i*7+SPOKEN_SPAN[0])*DAY_DURATION)
             .set_duration(DAY_DURATION*7)
             .set_position((position, 'center'))
-            .rotate(rotation+1e-14)  # HACK
+            .rotate(rotation)
         )
 
-for choir_terms, pan in zip((choir0_terms, choir1_terms, choir2_terms, choir3_terms, choir4_terms), CHOIR_PANS):
+min_choir_pitch = min(sum(choir_voices, []))
+for part, span, pan in zip(choir_parts, CHOIR_SPANS, CHOIR_PANS):
     x = 0.1 + 4/5 * pan
-    # TODO: get the number of syllables in each term to set the text durations correctly.
-    # TODO: adjust y position based on pitch?
-    for date, term in choir_terms:
-        clip = (
-            TextClip(term, fontsize=30, color='white')
-            .set_start((date - START).days*DAY_DURATION)
-            .set_duration(DAY_DURATION)
-        )
-        clip = clip.set_position((x * clipW.w - clip.w/2, clipW.h/4 - clip.h/2))
-        videos.append(clip)
+    for i, (term, pitch) in enumerate(part):
+        if term:
+            clip = (
+                TextClip(term, fontsize=26, color='white')
+                .set_start((span[0]+i)*DAY_DURATION)
+                .set_duration(DAY_DURATION)
+            )
+            clip = clip.set_position((x * clipW.w - clip.w/2,
+                clipW.h/4 - clip.h/2 - (pitch - min_choir_pitch)*factor*2))
+            videos.append(clip)
 
-for i, term in enumerate(bass_terms):
-    # TODO: adjust y position based on pitch?
+min_bass_pitch = min(bass_voice)
+for i, (term, pitch) in enumerate(bass_part):
     videos.append(
         TextClip(term, fontsize=70, color='white')
         .set_start((i*7+BASS_SPAN[0])*DAY_DURATION)
         .set_duration(DAY_DURATION*7)
-        .set_position(('center', 'bottom'))
+        .set_position(('center', clipW.h - clip.h - (pitch - min_bass_pitch)*factor*3))
     )
 
 video = CompositeVideoClip(videos)
@@ -219,32 +232,10 @@ video.write_videofile(f"search{VERSION}_{VIDEO_VERSION}.mp4", fps=12, audio=f"se
 
 ### AUDIO
 
-activity_env = zoh(to_stream(activity), convert_time(DAY_DURATION))
+activity_env = to_stream(activity).hold(DAY_DURATION)
 
 # Speech & singing
 from speech import speech, sing
-
-from chord import C, PITCH_CLASSES
-def sing_chord(text, pitches, duration=1):
-    return MixStream([
-        sing(text, m2f(pitch), duration)
-        for pitch in pitches
-    ])
-
-# Modify live:
-chord = 'C#6'
-cs = repeat(lambda: sing_chord('Hello world', C(chord).notes)).join()
-
-# chords :: [(text, pitches, duration)]
-def sing_chords(chords):
-    return ConcatStream([sing_chord(*p) for p in chords])
-
-s = sing_chords([("Hello", C('Cmaj7').notes, 1), ("world", C('Dm6').notes, 1)])
-
-# def stutter(stream, size, repeats):
-#     return repeat(stream[:size], repeats).bind(lambda rest: stutter(rest, size, repeats) if rest else empty)
-
-# st = stutter(s, .1, 3)
 
 SPEECH_DIR = 'tts'
 speech_cache = {}
@@ -254,88 +245,89 @@ for i, term in enumerate(data.keys()):
 
 # Hacks to get recognizable pronunciation.
 # (These voices pronounce "coronavirus" like "carnivorous".)
+# See https://stackoverflow.com/questions/6116978/how-to-replace-multiple-substrings-of-a-string
+import re
+fixes = {"coronavirus": "corona-virus", "kobe": "kobey"}
+fixes = {re.escape(k): v for k, v in fixes.items()}
+fix_pattern = re.compile("|".join(fixes.keys()))
 def fix_term(term):
-    return term.replace("coronavirus", "corona-virus").replace("kobe", "kobey")
+    return fix_pattern.sub(lambda m: fixes[re.escape(m.group(0))], term)
 
 term_cache = {}
-def sing_term(term, pitch):
-    if (term, pitch) not in term_cache:
-        term_cache[(term, pitch)] = sing(fix_term(term), m2f(pitch), SYLLABLE_DURATION, divide_duration=False, voice='us1_mbrola')
-    return term_cache[(term, pitch)]
+def sing_term(term, pitch, duration, divide_duration=True):
+    args = (term, pitch, duration, divide_duration)
+    if args not in term_cache:
+        term_cache[args] = sing(
+            fix_term(term), m2f(pitch),
+            duration, divide_duration=divide_duration,
+            voice='us1_mbrola'
+        )
+    return term_cache[args]
 
 # NOTE: This sings each term in that day's pitch, but with divide_duration=False,
 # but terms may spill over into subsequent days, potentially 'smearing' the pitches.
 @stream
-def sing_layer(pitches, start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    t = 0
+def sing_layer(part):
     items = []
-    for pitch, days in zip(pitches, range((end - start).days)):
-        date = start + timedelta(days)
-        term = get_term(date)
+    for day, (term, pitch) in enumerate(part):
         if term:
-            print(date, term)
-            clip = sing_term(term, pitch)
-            items.append((t, clip))
-        t += DAY_DURATION
+            clip = sing_term(term, pitch, SYLLABLE_DURATION, divide_duration=False)
+            items.append((day * DAY_DURATION, clip))
     return arrange(items)
 
 @stream
-def spoken_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
-    spoken_items = []
-    for day in range(0, (end - start).days, 7):
-        rising = get_rising(start + timedelta(day))
-        clips = [speech_cache[term] for term in rising]
+def spoken_layer(terms):
+    items = []
+    for week, week_terms in enumerate(terms):
+        clips = [speech_cache[term] for term in week_terms]
         tutti = pan(clips[0], 0.5) + pan(clips[1], 0) + pan(clips[2], 1)
-        spoken_items.append((DAY_DURATION * day, tutti))
-    return arrange(spoken_items)
+        items.append((DAY_DURATION * week * 7, tutti))
+    return arrange(items)
 
 @stream
-def high_layer(start=datetime(2020,1,1), end=datetime(2021,1,1)):
+def high_layer(part):
     high = empty
-    for day in range(0, (end - start).days, 7):
-        rising = get_rising(start + timedelta(day))
-        term = sing(fix_term(rising[0]), m2f(67), DAY_DURATION)[:DAY_DURATION]
-        for d in range(min((end-start).days-day, 7)):
-            high >>= term
+    for term, pitch in part:
+        clip = sing_term(term, pitch, DAY_DURATION)[:DAY_DURATION]
+        for _ in range(7):
+            high >>= clip
     return high
 
 @stream
-def bass_layer(pitches, start=datetime(2020,1,1), end=datetime(2021,1,1)):
+def bass_layer(part):
     bass = empty
-    for pitch, day in zip(pitches[::7], range(0, (end - start).days, 7)):
-        term = fix_term(get_rising(start + timedelta(day))[0])
-        # bass >>= sing(fix_term(rising[0]), [m2f(36), m2f(30)], DAY_DURATION*7)[:DAY_DURATION*7]
-        bass >>= (sing(term, m2f(pitch), DAY_DURATION*7)[:DAY_DURATION*7] +
-                  sing(term, m2f(pitch+12), DAY_DURATION*7)[:DAY_DURATION*7])
+    for term, pitch in part:
+        bass >>= (sing_term(term, pitch, DAY_DURATION*7)[:DAY_DURATION*7] +
+                  sing_term(term, pitch+12, DAY_DURATION*7)[:DAY_DURATION*7])
     return bass
 
-import mido
-mid = mido.MidiFile('projects/Searching/Searching_2020.mid')
-times = {}
-time = 0
-for msg in mid:
-    time += msg.time
-    if not msg.is_meta and msg.type == 'note_on' and msg.velocity:
-        if time not in times:
-            times[time] = []
-        times[time].append(msg.note)
+# I considered generating a melody for the fast voice, but decided against it.
+# scale = [0, 2, 3, 5, 7, 9, 10]
+# scale = [0, 2, 3, 4, 5, 6, 7, 9, 10]
+# ROOT = 67
+# def get_degree(degree):
+#     oct, deg = divmod(degree, len(scale))
+#     return ROOT + (oct*12) + scale[deg]
 
-chords = list(map(sorted, times.values()))
-voices = [zoh(to_stream([chord[i] for chord in chords]), 7) for i in range(6)]
+# def week_tune():
+#     two = [ROOT + random.choice(scale), ROOT + random.choice(scale)]
+#     start = random.randrange(len(scale))
+#     dir = random.choice([-1, 1])
+#     three = [get_degree(start+dir*i) for i in range(3)]
+#     return two + two + three
 
-random.seed(0)
-high = high_layer(START+timedelta(HIGH_SPAN[0]), START+timedelta(HIGH_SPAN[1]))
-choir0 = sing_layer(voices[1][CHOIR0_SPAN[0]:], START+timedelta(CHOIR0_SPAN[0]), START+timedelta(CHOIR0_SPAN[1]))
-choir1 = sing_layer(voices[2][CHOIR1_SPAN[0]:], START+timedelta(CHOIR1_SPAN[0]), START+timedelta(CHOIR1_SPAN[1]))
-choir2 = sing_layer(voices[3][CHOIR2_SPAN[0]:], START+timedelta(CHOIR2_SPAN[0]), START+timedelta(CHOIR2_SPAN[1]))
-choir3 = sing_layer(voices[4][CHOIR3_SPAN[0]:], START+timedelta(CHOIR3_SPAN[0]), START+timedelta(CHOIR3_SPAN[1]))
-choir4 = sing_layer(voices[5][CHOIR4_SPAN[0]:], START+timedelta(CHOIR4_SPAN[0]), START+timedelta(CHOIR4_SPAN[1]))
-spoken = spoken_layer(START+timedelta(SPOKEN_SPAN[0]), START+timedelta(SPOKEN_SPAN[1]))
-bass = bass_layer(voices[0][BASS_SPAN[0]:], START+timedelta(BASS_SPAN[0]), START+timedelta(BASS_SPAN[1]))
+# p = repeat(week_tune).map(to_stream).join()
+
+high = high_layer(high_part)
+choir = list(map(sing_layer, choir_parts))
+spoken = spoken_layer(spoken_terms)
+bass = bass_layer(bass_part)
+
+# I considered adding percussion but decided against it:
+# PERCUSSION_SPAN = (1*7, 51*7)
 # from FauxDot import beat
 # percussion = beat("|x2|-x-|-2|-[--]", bpm=60/DAY_DURATION)[:(PERCUSSION_SPAN[1]-PERCUSSION_SPAN[0])*DAY_DURATION]
-# play(beat("|-2|--x-|x2|[--]", bpm=60/DAY_DURATION))
-# play()
+
 import filters
 
 # db to gain, for amplitudes
@@ -343,7 +335,7 @@ def db(decibels):
     return 10**(decibels/20)
 
 synths = MixStream([
-    pan(fm_osc(zoh(voice.map(m2f), convert_time(DAY_DURATION))), p)
+    pan(fm_osc(to_stream(voice).map(m2f).hold(DAY_DURATION*7)), p)
     for voice, p in zip(voices, [0.5] + CHOIR_PANS)
 ])/6
 
@@ -352,12 +344,9 @@ synths = MixStream([
 c0 = arrange([
     (HIGH_SPAN[0]*DAY_DURATION, high),
     (SPOKEN_SPAN[0]*DAY_DURATION, filters.comb(spoken, .2, -convert_time(SYLLABLE_DURATION))),
-    (BASS_SPAN[0]*DAY_DURATION, bass*db(3)),
-    # (PERCUSSION_SPAN[0]*DAY_DURATION, percussion),
-    (SYNTH_SPAN[0]*DAY_DURATION, synths[SYNTH_SPAN[0]*DAY_DURATION:]*db(-19))
+    (BASS_SPAN[0]*DAY_DURATION, bass),
+    (SYNTH_SPAN[0]*DAY_DURATION, synths[SYNTH_SPAN[0]*DAY_DURATION:]*db(-15))
 ]) * (activity_env >> const(0.3)[:DAY_DURATION*8])
-
-choir = [choir0, choir1, choir2, choir3, choir4]
 
 c1 = arrange([
     (span[0]*DAY_DURATION, pan(choir, p))
@@ -365,5 +354,16 @@ c1 = arrange([
 ])
 
 c = (c0 + c1)/2
+
+# I considered sweeping a filter up each week, with the range
+# of the sweep increasing through the year up to the election.
+# But I decided against it.
+# stop_filter = [r[0] for r in rising.values()].index('election results')
+# c = filters.bpf(c, count().hold(DAY_DURATION).map(
+#     lambda x: (x%7)*x + (650-x)
+# ), 0.5)[:DAY_DURATION*stop_filter*7].bind(
+#     # Don't try this at home! (Implementation-detail hack)
+#     lambda rest: rest.stream.fn.__closure__[-1].cell_contents
+# )
 
 wav.save(c + frame(0, 0), f"search{VERSION}.wav", verbose=True)
