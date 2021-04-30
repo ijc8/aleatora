@@ -92,7 +92,6 @@ CHOIR_PANS = [2/4, 1/4, 3/4, 0/4, 4/4]
 
 START = datetime(2020,1,1)
 
-# TODO: reduce duplication.
 rising_top = [rise[0] for rise in list(rising.values())]
 high_terms = rising_top[HIGH_SPAN[0]//7:HIGH_SPAN[1]//7]
 bass_terms = rising_top[BASS_SPAN[0]//7:BASS_SPAN[1]//7]
