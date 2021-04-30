@@ -119,7 +119,7 @@ const SequenceTab = ({ name, resource }) => {
   useEffect(() => {
     roll.current.sequence = resource.json.map(([start, length, pitch]) => ({t: start, g: length, n: pitch}))
     roll.current.redraw()
-  })
+  }, [resource])
 
   return <webaudio-pianoroll ref={roll} onKeyPress={onKeyPress} width="498" wheelzoom="1" editmode="dragpoly" colrulerbg="#fff" colrulerfg="#000" colrulerborder="#fff" xruler="20" yruler="20" xscroll="1" yscroll="1"></webaudio-pianoroll>
 }
@@ -295,7 +295,7 @@ const Resource = ({ name, fullName, value, focus, setFocus, playing, setPlaying 
   const icon = (value.type === "stream" ? "water" : (value.instrument ? "piano" : "microwave"))
   return <li onClick={setFocus} className={focus ? "focused" : ""}>
     <span className="resource-name"><Icon name={icon} /> {name}</span>
-    {value.type === "stream" &&
+    {(value.type === "stream" || value.instrument) &&
     <button onClick={() => {
       send({ cmd: playing ? "pause" : "play", name: fullName })
       setPlaying(!playing)

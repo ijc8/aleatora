@@ -251,6 +251,27 @@ class Stream:
         cycled = ConcatStream(())
         cycled.streams = (self, cycled)
         return cycled
+    
+    @stream
+    def hold(self, duration):
+        return zoh(self, convert_time(duration))
+    
+    @stream
+    def reverse(self):
+        # NOTE: Naturally, this requires evaluating the entire stream.
+        # Calling this on an infinite stream will not result in a good time.
+        return lambda: to_stream(list(self)[::-1])()
+    
+    @register_stream
+    def each(self, fn):
+        def wrapper(x):
+            fn(x)
+            return x
+        return self.map(wrapper)
+    
+    @register_stream
+    def scan(self, fn, acc):
+        return scan(self, fn, acc)
 
     def __str__(self):
         return "Mystery Stream"
@@ -836,9 +857,8 @@ def normalize(stream):
     # Works for any number of channels.
     print('Rendering...')
     t = time.time()
-    l = list(stream)
+    a = np.array(stream)
     print('Done in', time.time() - t)
-    a = np.array(l)
     peak = np.max(np.abs(a))
     return to_stream(a / peak)
 

@@ -1,16 +1,49 @@
 import mido
 from core import *
 
+# TODO: Events as lists of messages.
+# (This will address the issue of simultaneous events, or delta time = 0 in MIDI data.)
 
 # Example usage:
 # print(mido.get_input_names())  # List available MIDI inputs.
 # p = mido.open_input(mido.get_input_names()[1])
 # play(poly_instrument, event_stream(p))
 
-@raw_stream
-def event_stream(port):
-    return lambda: (port.poll(), event_stream(port))
+get_input_names = mido.get_input_names
 
+@stream
+def event_stream(port=None):
+    if port is None:
+        port = get_input_names()[-1]
+    if isinstance(port, str):
+        port = mido.open_input(port)
+    return repeat(port.poll)
+
+# TODO: test this
+def file_stream(filename, include_meta=False):
+    def message_to_events(message):
+        wait = const(None)[:int(msg.time/SAMPLE_RATE)]
+        if msg.is_meta and not include_meta:
+            return wait
+        else:
+            return wait >> cons(msg, empty)
+    return iter_to_stream(MidiFile(filename)).map(message_to_events).join()
+
+def render(stream, filename, rate=None, bpm=120):
+    if rate is None:
+        rate = SAMPLE_RATE
+    mid = mido.MidiFile()
+    track = mido.MidiTrack()
+    mid.tracks.append(track)
+    t = 0
+    for message in stream:
+        if message:
+            ticks = int(t * (bpm / 60) * mid.ticks_per_beat)
+            t -= ticks / mid.ticks_per_beat / (bpm / 60)
+            message.time = ticks
+            track.append(message)
+        t += 1/rate
+    mid.save(filename)
 
 # Instruments take a stream of mido-style messages
 # (objects with `type`, `note`, `velocity` - or None, indicating no message)

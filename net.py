@@ -150,6 +150,7 @@ def unblock(blocking_stream, filler=None, hold=False):
         nonlocal ret
         ret = blocking_stream()
     t = threading.Thread(target=wrapper)
+    @Stream
     def closure():
         nonlocal t
         if t.is_alive():
@@ -182,10 +183,13 @@ def byte_stream(address, port, chunk_size=1):
     return init
 
 # This acts as a UDP server
+# Yields a stream of (datagram bytes, address of sender)
 @raw_stream
 def packet_stream(address, port, max_packet_size=65536):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s = None
     def init():
+        nonlocal s
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.bind((address, port))
         return closure()
     def closure():
@@ -193,7 +197,13 @@ def packet_stream(address, port, max_packet_size=65536):
     return init
 
 import oscpy
+import oscpy.parser
+from collections import namedtuple
+
+OSCMessage = namedtuple('OSCMessage', ('address', 'tags', 'args', 'index'))
 
 @raw_stream
-def osc_stream(address, port):
-    return packet_stream(address, port, 65536).map(oscpy.parser.read_packet)
+def osc_stream(address='0.0.0.0', port=8000):
+    return (packet_stream(address, port, 65536)
+            .map(lambda p: to_stream([OSCMessage(*m) for m in oscpy.parser.read_packet(p[0])]))
+            .join())
