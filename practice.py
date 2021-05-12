@@ -2263,3 +2263,620 @@ rfv = ListStream(fc.fn.list[::-1])
 s = resample(fc >> rfv, 1 + osc(1)*.01)
 play(cycle(w(lambda: s)) + beat("x-o[x-]", bpm=120))
 play()
+
+
+# 5/8/21
+# The threequel
+# Let's add support for locals:
+# Find local variables inside a function.
+import inspect
+import ast
+import astor
+
+def make_cfg(fn, local_names):
+    id = -1
+    def make_name(id):
+        return ast.Name(id=f'_{hash(fn):x}_{id:x}', ctx=ast.Load())
+
+    local_tuple = ast.Tuple(elts=[ast.Name(id=local, ctx=ast.Load()) for local in local_names], ctx=ast.Load())
+
+    # TODO: Only transform a branch or loop if it has a yield somewhere in its subtree.
+    def build_cfg(statements, successor=None):
+        # print('build_cfg', statements, successor)
+        nonlocal id
+        id += 1
+        cfg = {'id': id, 'name': make_name(id), 'children': []}
+        stmts = []
+        for i, statement in enumerate(statements):
+            # print(astor.dump_tree(statement))
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('yield'), statement.value.value, make_name(id+1), local_tuple], ctx=ast.Load())))
+                # Break off into next CFG.
+                cfg['statements'] = stmts
+                cfg['children'] = [build_cfg(statements[i+1:], successor)]
+                return cfg
+            elif isinstance(statement, ast.Return):
+                # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), statement.value, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            elif isinstance(statement, ast.If):
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, successor)
+                else_cfg = build_cfg(statement.orelse, successor)
+                stmts.append(ast.If(test=statement.test,
+                                    body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                    orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))]))
+                cfg['statements'] = stmts
+                cfg['children'] = [then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.While):
+                # TODO: Handle break, continue.
+                cond_cfg = build_cfg([], None)
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                then_successor = make_name(cond_cfg['id'])
+                else_successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, then_successor)
+                else_cfg = build_cfg(statement.orelse, else_successor)
+                cond_cfg['statements'] = [ast.If(test=statement.test,
+                                                 body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                                 orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))])]
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), then_successor, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                cfg['children'] = [cond_cfg, then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.For):
+                # TODO
+                pass
+            else:
+                stmts.append(statement)
+        if successor:
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), successor, local_tuple], ctx=ast.Load())))
+        else:
+            # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), ast.NameConstant(value=None), local_tuple], ctx=ast.Load())))
+        cfg['statements'] = stmts
+        return cfg
+    return build_cfg(fn.body)
+
+def print_cfg(cfg):
+    print("CFG:", cfg['id'])
+    for statement in cfg['statements']:
+        print('    ' + astor.dump_tree(statement))
+    for child in cfg['children']:
+        print_cfg(child)
+
+def finish_conversion(cfg, local_names):
+    defs = []
+    def dfs(cfg):
+        args = ast.arguments(args=[ast.arg(arg=local) for local in local_names],
+                             kwonlyargs=[], kw_defaults=[], defaults=[])
+        defs.append(ast.FunctionDef(name=cfg['name'].id, args=args,
+                                    body=cfg['statements'], decorator_list=[]))
+        for child in cfg['children']:
+            dfs(child)
+    dfs(cfg)
+    m = ast.Module(defs)
+    ast.fix_missing_locations(m)
+    return m
+
+def test_decorator(f):
+    tree = ast.parse(inspect.getsource(f))
+    fn = tree.body[0]
+    # print(astor.dump_tree(fn))
+    # for statement in fn.body:
+    #     if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+    #         print("Yield:", astor.dump_tree(statement.value.value))
+    #     else:
+    #         print(astor.dump_tree(statement))
+    cfg = make_cfg(fn)
+    print_cfg(cfg)
+
+from core import *
+class GeneratorStream(Stream):
+    def __init__(self, generated_fn, locals=()):
+        self.generated_fn = generated_fn
+        self.locals = locals
+    
+    def __call__(self):
+        fn, locals = self.generated_fn, self.locals
+        while True:
+            # print(fn, locals)
+            inst, *args = fn(*locals)
+            if inst == 'bounce':
+                fn, locals = args
+            else:
+                break
+        if inst == 'yield':
+            value, fn, locals = args
+            return (value, GeneratorStream(fn, locals))
+        elif inst == 'return':
+            return Return(args[0])
+
+def generator_to_stream(f):
+    tree = ast.parse(inspect.getsource(f))
+    fn = tree.body[0]
+    local_names = FindLocals().find_locals(fn)
+    cfg = make_cfg(fn, local_names)
+    converted = finish_conversion(cfg, local_names)
+    for defn in converted.body:
+        print(astor.dump_tree(defn))
+    global c
+    exec(compile(converted, f.__code__.co_filename, 'exec'), globals())
+    # TODO: Some special initial value in place of None.
+    # (Some kind of "Undefined" that is unique to this and throws exceptions when you try to do anything with it?)
+    return GeneratorStream(globals()[cfg['name'].id], [None for _ in local_names])
+
+
+import random
+
+@generator_to_stream
+def foo():
+    yield 1
+    if random.random() > 0.5:
+        yield 2
+        print("yay")
+        yield 3
+    else:
+        yield 4
+        print("nay")
+        yield 5
+    print("almost done")
+    yield 6
+    print("done")
+    return 7
+
+@generator_to_stream
+def grand():
+    while True:
+        yield random.random()
+
+# Works now:
+@generator_to_stream
+def bar():
+    i = 0
+    while i < 3:
+        print(i)
+        yield i
+        i += 1
+
+
+# I guess in this analogy, the generator function itself is like a function returning a stream,
+# while the generator is the stream itself.
+# So @generator_to_stream should not convert the generator function into a stream,
+# but into a stream function.
+
+
+# 5/9/21
+
+# Let's handle arguments: generator_to_stream will convert generator function -> stream function.
+
+# Doesn't work yet:
+@generator_to_stream
+def bar(i):
+    while i > 0:
+        yield i
+        i -= 1
+
+
+import ast
+import inspect
+
+def get_arg_names(args):
+    names = [a.arg for a in args.args]
+    if args.vararg:
+        names.append(args.vararg.arg)
+    names += [a.arg for a in args.kwonlyargs]
+    if args.kwarg:
+        names.append(args.kwarg.arg)
+    return names
+
+class FindLocals(ast.NodeVisitor):
+    def __init__(self):
+        self.store_names = set()
+        self.global_or_nonlocal_names = set()
+        self.inside = False
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Store):
+            self.store_names.add(node.id)
+
+    def visit_Global(self, node):
+        for name in node.names:
+            self.global_or_nonlocal_names.add(name)
+    
+    visit_Nonlocal = visit_Global
+
+    def visit_FunctionDef(self, node):
+        if not self.inside:
+            self.inside = True
+            args = {a.arg for a in node.args.args}
+            if node.args.vararg:
+                args.add(node.args.vararg.arg)
+            args |= {a.arg for a in node.args.kwonlyargs}
+            if node.args.kwarg:
+                args.add(node.args.kwarg.arg)
+            self.store_names |= set(get_arg_names(node.args))
+            self.generic_visit(node)
+            self.inside = False
+
+    def find_locals(self, node):
+        self.visit(node)
+        return self.store_names - self.global_or_nonlocal_names
+
+
+def make_cfg(name, body, local_names):
+    id = -1
+    def make_name(id):
+        return ast.Name(id=f'_{name}_{id:x}', ctx=ast.Load())
+
+    local_tuple = ast.Tuple(elts=[ast.Name(id=local, ctx=ast.Load()) for local in local_names], ctx=ast.Load())
+
+    # TODO: Only transform a branch or loop if it has a yield somewhere in its subtree.
+    def build_cfg(statements, successor=None):
+        # print('build_cfg', statements, successor)
+        nonlocal id
+        id += 1
+        cfg = {'id': id, 'name': make_name(id), 'children': []}
+        stmts = []
+        for i, statement in enumerate(statements):
+            # print(astor.dump_tree(statement))
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('yield'), statement.value.value, make_name(id+1), local_tuple], ctx=ast.Load())))
+                # Break off into next CFG.
+                cfg['statements'] = stmts
+                cfg['children'] = [build_cfg(statements[i+1:], successor)]
+                return cfg
+            elif isinstance(statement, ast.Return):
+                # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), statement.value, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            elif isinstance(statement, ast.If):
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, successor)
+                else_cfg = build_cfg(statement.orelse, successor)
+                stmts.append(ast.If(test=statement.test,
+                                    body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                    orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))]))
+                cfg['statements'] = stmts
+                cfg['children'] = [then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.While):
+                # TODO: Handle break, continue.
+                cond_cfg = build_cfg([], None)
+                rest_cfg = build_cfg(statements[i+1:], successor)
+                then_successor = make_name(cond_cfg['id'])
+                else_successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, then_successor)
+                else_cfg = build_cfg(statement.orelse, else_successor)
+                cond_cfg['statements'] = [ast.If(test=statement.test,
+                                                 body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                                 orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))])]
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), then_successor, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                cfg['children'] = [cond_cfg, then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.For):
+                # TODO
+                pass
+            else:
+                stmts.append(statement)
+        if successor:
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), successor, local_tuple], ctx=ast.Load())))
+        else:
+            # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), ast.NameConstant(value=None), local_tuple], ctx=ast.Load())))
+        cfg['statements'] = stmts
+        return cfg
+    return build_cfg(body)
+
+
+def convert_cfg(cfg, local_names):
+    defs = []
+    def dfs(cfg):
+        args = ast.arguments(args=[ast.arg(arg=local) for local in local_names],
+                             kwonlyargs=[], kw_defaults=[], defaults=[])
+        defs.append(ast.FunctionDef(name=cfg['name'].id, args=args,
+                                    body=cfg['statements'], decorator_list=[]))
+        for child in cfg['children']:
+            dfs(child)
+    dfs(cfg)
+    return defs
+
+def generator_to_stream(f):
+    tree = ast.parse(inspect.getsource(f))
+    fn = tree.body[0]
+    local_names = FindLocals().find_locals(fn)
+    name = f'{f.__qualname__}_{hash(f):x}'
+    cfg = make_cfg(name, fn.body, local_names)
+    defs = convert_cfg(cfg, local_names)
+    # for def in defs:
+    #     print(astor.dump_tree(def))
+
+    args = get_arg_names(fn.args)
+    args = ast.Tuple(elts=[ast.Name(id=arg, ctx=ast.Load()) for arg in args] +
+                        [ast.NameConstant(None) for _ in range(len(local_names) - len(args))],
+                     ctx=ast.Load())
+    entry = ast.FunctionDef(name=f'_{name}_entry', args=fn.args, decorator_list=[], body=[
+        ast.Return(ast.Call(func=ast.Name(id='GeneratorStream', ctx=ast.Load()), args=[cfg['name'], args], keywords=[]))
+    ])
+    # TODO: Some special initial value in place of None.
+    # (Some kind of "Undefined" that is unique to this and throws exceptions when you try to do anything with it?)
+    defs.append(entry)
+    defs.append(ast.Expr(ast.Name(id='GeneratorStream', ctx=ast.Load())))
+    m = ast.Module(defs)
+    ast.fix_missing_locations(m)
+    # TODO: Could hide all of the global functions generated by this in a temporary scope.
+    # This would also make it easy to give the entry function the same name as the
+    # original function without accidentally overwriting a global.
+    exec(compile(m, f.__code__.co_filename, 'exec'), globals())
+    return globals()[f'_{name}_entry']
+
+# Works now!
+@generator_to_stream
+def bar(i):
+    while i > 0:
+        yield i
+        i -= 1
+
+# bar(3) -> <GeneratorStream ...>
+# list(bar(3)) -> [3, 2, 1]
+
+# All that's missing now is for loops:
+@generator_to_stream
+def foo(n):
+    for i in range(n):
+        yield i
+
+
+# First, a standalone for -> while transformer.
+# Transform this:
+
+# for var_name in iter_expr:
+#     loop_body
+# else:
+#     else_body
+
+# into:
+
+# it = iter(<iter_expr>)
+# keep_going = True
+# while keep_going:
+#     try:
+#         <var_name> = next(it)
+#     except StopIteration:
+#         keep_going = False
+#     else:
+#         <loop_body>
+# else:
+#     <else_body>
+
+# can't just use a break in the `except` because that would also trigger the while's `else`.
+# could add an additional bool like `normal_exit` + an `if not normal_exit` in the else for this case, but I think this is cleaner.
+
+# got tired of writing the new AST by hand (putting togther all the ast.* bits), so let's take a different tack.
+
+class TemplateTransformer(ast.NodeTransformer):
+    # Hygiene counter.
+    id = 0
+
+    def __init__(self, fragment_map):
+        super().__init__()
+        self.fragment_map = fragment_map
+        self.hygiene_map = {}
+    
+    def visit_Expr(self, node):
+        if isinstance(node.value, ast.Name):
+            return self.fragment_map.get(node.value.id, node)
+        self.generic_visit(node)
+        return node
+    
+    def visit_Name(self, node):
+        if node.id in self.fragment_map:
+            return self.fragment_map[node.id]
+        elif node.id.startswith('_'):
+            if node.id not in self.hygiene_map:
+                self.hygiene_map[node.id] = f'{node.id}_{self.id}'
+                TemplateTransformer.id += 1
+            return ast.Name(id=self.hygiene_map[node.id], ctx=node.ctx)
+        else:
+            return node
+
+# Template for for->while transform.
+# Caps will be replaced by AST fragments, _vars will be replaced with hygenic names.
+def for_template():
+    _it = iter(ITER_EXPR)
+    _keep_going = True
+    while _keep_going:
+        try:
+            VAR_NAME = next(_it)
+        except StopIteration:
+            _keep_going = False
+        else:
+            LOOP_BODY
+    else:
+        ELSE_BODY
+
+class RewriteFor(ast.NodeTransformer):
+    def visit_For(self, node):
+        tt = TemplateTransformer({
+            'ITER_EXPR': node.iter,
+            'VAR_NAME': node.target,
+            'LOOP_BODY': node.body,
+            'ELSE_BODY': node.orelse,
+        })
+        self.generic_visit(node)
+        return tt.visit(ast.parse(inspect.getsource(for_template)).body[0]).body
+
+def test_function():
+    print('hi')
+    for i in range(10):
+        print(i)
+    l = [1,3,5,7]
+    for x in l:
+        if x % 2 == 0:
+            print(x, 'is even!')
+            break
+    else:
+        print('No even numbers!')
+    for i in range(3):
+        for j in range(3):
+            for k in range(3):
+                print(i, j, k)
+
+transformed = ast.fix_missing_locations(RewriteFor().visit(ast.parse(inspect.getsource(test_function))))
+
+import astor
+print(astor.to_source(transformed))
+
+exec(compile(transformed, '<string>', 'exec'), globals())
+
+# Okay, that seems good for tonight.
+# Tomorrow: combine for-transformer with generator-converter. Support break, continue.
+
+# 5/10/21
+# break and continue.
+
+def make_cfg(name, body, local_names):
+    id = -1
+    def make_name(id):
+        return ast.Name(id=f'_{name}_{id:x}', ctx=ast.Load())
+
+    local_tuple = ast.Tuple(elts=[ast.Name(id=local, ctx=ast.Load()) for local in local_names], ctx=ast.Load())
+
+    # TODO: Only transform a branch or loop if it has a yield somewhere in its subtree.
+    def build_cfg(statements, successor=None, continue_target=None, break_target=None):
+        # print('build_cfg', statements, successor)
+        nonlocal id
+        id += 1
+        cfg = {'id': id, 'name': make_name(id), 'children': []}
+        stmts = []
+        for i, statement in enumerate(statements):
+            # print(astor.dump_tree(statement))
+            if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Yield):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('yield'), statement.value.value, make_name(id+1), local_tuple], ctx=ast.Load())))
+                # Break off into next CFG.
+                cfg['statements'] = stmts
+                cfg['children'] = [build_cfg(statements[i+1:], successor, continue_target, break_target)]
+                return cfg
+            elif isinstance(statement, ast.If):
+                rest_cfg = build_cfg(statements[i+1:], successor, continue_target, break_target)
+                successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, successor, continue_target, break_target)
+                else_cfg = build_cfg(statement.orelse, successor, continue_target, break_target)
+                stmts.append(ast.If(test=statement.test,
+                                    body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                    orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))]))
+                cfg['statements'] = stmts
+                cfg['children'] = [then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.While):
+                # TODO: Handle break, continue.
+                cond_cfg = build_cfg([])
+                rest_cfg = build_cfg(statements[i+1:], successor, continue_target, break_target)
+                then_successor = make_name(cond_cfg['id'])
+                else_successor = make_name(rest_cfg['id'])
+                then_cfg = build_cfg(statement.body, then_successor, then_successor, else_successor)
+                else_cfg = build_cfg(statement.orelse, else_successor, continue_target, break_target)
+                cond_cfg['statements'] = [ast.If(test=statement.test,
+                                                 body=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(then_cfg['id']), local_tuple], ctx=ast.Load()))],
+                                                 orelse=[ast.Return(ast.Tuple(elts=[ast.Str('bounce'), make_name(else_cfg['id']), local_tuple], ctx=ast.Load()))])]
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), then_successor, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                cfg['children'] = [cond_cfg, then_cfg, else_cfg, rest_cfg]
+                return cfg
+            elif isinstance(statement, ast.For):
+                # TODO
+                pass
+            elif isinstance(statement, ast.Return):
+                # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), statement.value, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            elif isinstance(statement, ast.Continue):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), continue_target, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            elif isinstance(statement, ast.Break):
+                stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), break_target, local_tuple], ctx=ast.Load())))
+                cfg['statements'] = stmts
+                return cfg
+            else:
+                stmts.append(statement)
+        if successor:
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('bounce'), successor, local_tuple], ctx=ast.Load())))
+        else:
+            # Not really necessary to return locals here, but we do so anyway for inspection/debugging purposes.
+            stmts.append(ast.Return(ast.Tuple(elts=[ast.Str('return'), ast.NameConstant(value=None), local_tuple], ctx=ast.Load())))
+        cfg['statements'] = stmts
+        return cfg
+    return build_cfg(body)
+
+def convert_cfg(cfg, local_names):
+    defs = []
+    def dfs(cfg):
+        args = ast.arguments(args=[ast.arg(arg=local, annotation=None) for local in local_names],
+                             vararg=None, kwarg=None, kwonlyargs=[], kw_defaults=[], defaults=[])
+        defs.append(ast.FunctionDef(name=cfg['name'].id, args=args,
+                                    body=cfg['statements'], decorator_list=[]))
+        for child in cfg['children']:
+            dfs(child)
+    dfs(cfg)
+    return defs
+
+def generator_to_stream(debug=False):
+    def helper(f):
+        tree = ast.parse(inspect.getsource(f))
+        fn = tree.body[0]
+        local_names = FindLocals().find_locals(fn)
+        name = f'{f.__qualname__}_{hash(f):x}'
+        cfg = make_cfg(name, fn.body, local_names)
+        defs = convert_cfg(cfg, local_names)
+        # for def in defs:
+        #     print(astor.dump_tree(def))
+
+        args = get_arg_names(fn.args)
+        args = ast.Tuple(elts=[ast.Name(id=arg, ctx=ast.Load()) for arg in args] +
+                            [ast.NameConstant(None) for _ in range(len(local_names) - len(args))],
+                        ctx=ast.Load())
+        entry = ast.FunctionDef(name=f'_{name}_entry', args=fn.args, decorator_list=[], body=[
+            ast.Return(ast.Call(func=ast.Name(id='GeneratorStream', ctx=ast.Load()), args=[cfg['name'], args], keywords=[]))
+        ])
+        # TODO: Some special initial value in place of None.
+        # (Some kind of "Undefined" that is unique to this and throws exceptions when you try to do anything with it?)
+        defs.append(entry)
+        defs.append(ast.Expr(ast.Name(id='GeneratorStream', ctx=ast.Load())))
+        m = ast.Module(defs)
+        m = ast.fix_missing_locations(m)
+
+        if debug:
+            print(astor.to_source(m))
+        # TODO: Could hide all of the global functions generated by this in a temporary scope.
+        # This would also make it easy to give the entry function the same name as the
+        # original function without accidentally overwriting a global.
+        exec(compile(m, f.__code__.co_filename, 'exec'), globals())
+        return globals()[f'_{name}_entry']
+    return helper
+
+# Now this works:
+@generator_to_stream(debug=True)
+def bar(i):
+    while i > 0:
+        yield i
+        if i % 3 == 0:
+            print(i, "is a multiple of 3")
+            i -= 2
+            continue
+        if i % 11 == 0:
+            print("Yipee!", i, "is a multiple of 11")
+            print("That's so nice we'll yield it twice.")
+            yield i
+            break
+        i -= 1
+    print("All done!")
+    yield 0
+
+# next: combine with `for` translation. (and support `global`, `nonlocal`.)
