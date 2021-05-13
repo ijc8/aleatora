@@ -1,13 +1,13 @@
-import numpy as np
-
 import array
 import inspect
 import math
 import time
 import operator
 import random
+import os
 import pickle
 
+import numpy as np
 
 # This is the default sample rate, but it may be modified by audio module to
 # match what the audio device supports.
@@ -919,16 +919,20 @@ def aa_saw(freq):
 def w(f):
     return Stream(lambda: f()())
 
+
+FROZEN_PATH = 'frozen'
+
 # Freeze a stream and save the result to a file.
 # If the file already exists, load it instead of running the stream.
 # Like freeze(), assumes `stream` is finite.
 @stream
 def frozen(name, stream, redo=False, include_return=False):
-    # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
-    # (Hashes differently between session, if referenced objects are created in the session.)
+    os.makedirs(FROZEN_PATH, exists_ok=True)
     if not redo:
         try:
-            with open(f'frozen_{name}.pkl', 'rb') as f:
+            # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
+            # (Hashes differently between session, if referenced objects are created in the session.)
+            with open(os.path.join(FROZEN_PATH, f'frozen_{name}.pkl'), 'rb') as f:
                 return pickle.load(f)
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been frozen before.
@@ -960,9 +964,10 @@ def frozen(name, stream, redo=False, include_return=False):
 # Conceptually, record() is a cross between frozen() and memoize().
 @stream
 def record(name, stream, redo=False, include_return=False):
+    os.makedirs(FROZEN_PATH, exists_ok=True)
     if not redo:
         try:
-            with open(f'record_{name}.pkl', 'rb') as f:
+            with open(os.path.join(FROZEN_PATH, f'record_{name}.pkl'), 'rb') as f:
                 return pickle.load(f)
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been recorded before.
