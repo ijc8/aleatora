@@ -369,82 +369,83 @@ def generator_stream(f=None, debug=False):
 
 ## Examples
 
-import random
+if __name__ == '__main__':
+    import random
 
-@generator_stream(debug=True)
-def foo():
-    yield 1
-    if random.random() > 0.5:
-        yield 2
-        print("yay")
-        yield 3
-    else:
-        yield 4
-        print("nay")
-        yield 5
-    print("almost done")
-    yield 6
-    print("done")
-    return 7
+    @generator_stream(debug=True)
+    def foo():
+        yield 1
+        if random.random() > 0.5:
+            yield 2
+            print("yay")
+            yield 3
+        else:
+            yield 4
+            print("nay")
+            yield 5
+        print("almost done")
+        yield 6
+        print("done")
+        return 7
 
-@generator_stream
-def grand():
-    while True:
-        yield random.random()
+    @generator_stream
+    def grand():
+        while True:
+            yield random.random()
 
-@generator_stream
-def bar():
-    i = 0
-    while i < 3:
-        print(i)
-        yield i
-        i += 1
-
-@generator_stream(debug=True)
-def baz(i):
-    while i > 0:
-        yield i
-        if i % 3 == 0:
-            print(i, "is a multiple of 3")
-            i -= 2
-            continue
-        if i % 11 == 0:
-            print("Yipee!", i, "is a multiple of 11")
-            print("That's so nice we'll yield it twice.")
+    @generator_stream
+    def bar():
+        i = 0
+        while i < 3:
+            print(i)
             yield i
-            break
-        i -= 1
-    print("All done!")
-    yield 0
+            i += 1
 
-@generator_stream(debug=True)
-def foo(n):
-    for i in range(n):
-        yield i
+    @generator_stream(debug=True)
+    def baz(i):
+        while i > 0:
+            yield i
+            if i % 3 == 0:
+                print(i, "is a multiple of 3")
+                i -= 2
+                continue
+            if i % 11 == 0:
+                print("Yipee!", i, "is a multiple of 11")
+                print("That's so nice we'll yield it twice.")
+                yield i
+                break
+            i -= 1
+        print("All done!")
+        yield 0
 
-@generator_stream(debug=True)
-def test_function():
-    print('hi')
-    for i in range(10):
-        yield i
-    l = [1,3,5,7]
-    for x in l:
-        if x % 2 == 0:
-            print(x, 'is even!')
-            break
+    @generator_stream(debug=True)
+    def foo(n):
+        for i in range(n):
+            yield i
+
+    @generator_stream(debug=True)
+    def test_function():
+        print('hi')
+        for i in range(10):
+            yield i
+        l = [1,3,5,7]
+        for x in l:
+            if x % 2 == 0:
+                print(x, 'is even!')
+                break
+            yield x
+        else:
+            print('No even numbers!')
+        for i in range(3):
+            for j in range(3):
+                for k in range(3):
+                    yield i, j, k
+
+    x = 5
+
+    @generator_stream(debug=True)
+    def global_test():
+        global x
         yield x
-    else:
-        print('No even numbers!')
-    for i in range(3):
-        for j in range(3):
-            for k in range(3):
-                yield i, j, k
-
-x = 5
-
-@generator_stream(debug=True)
-def global_test():
-    global x
-    yield x
-    x += 1
-    yield x
+        x += 1
+        yield x

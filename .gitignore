@@ -1,5 +1,6 @@
-*.wav
 *venv/
 __pycache__/
 snd/
 frozen/
+rendered/
+samples/

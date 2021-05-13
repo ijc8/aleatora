@@ -1,23 +1,21 @@
+# Demo: play a stream live over HTTP.
 import http.server
+import io
 import socketserver
 import wave
-import io
-import core
-import math
+
 import numpy as np
+
+import core
 from phase import piano_phase
+
 
 PORT = 8000
 CHUNK_SIZE = 8192
 
-def gen(freq):
-    phase = 0
-    while True:
-        yield math.sin(phase)
-        phase += 2*math.pi*freq/core.SAMPLE_RATE
+buf = np.empty(CHUNK_SIZE, dtype=np.int16)
 
 def chunk_gen(gen):
-    buf = np.empty(CHUNK_SIZE, dtype=np.int16)
     while True:
         buf[:] = 0
         for i, sample in zip(range(CHUNK_SIZE), gen):
@@ -25,6 +23,7 @@ def chunk_gen(gen):
         yield buf
         if i < CHUNK_SIZE - 1:
             break
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -68,6 +67,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
 
 socketserver.ForkingTCPServer.allow_reuse_address = True
 with socketserver.ForkingTCPServer(("", PORT), Handler) as httpd:

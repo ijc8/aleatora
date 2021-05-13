@@ -22,12 +22,12 @@ def event_stream(port=None):
 # TODO: test this
 def file_stream(filename, include_meta=False):
     def message_to_events(message):
-        wait = const(None)[:int(msg.time/SAMPLE_RATE)]
-        if msg.is_meta and not include_meta:
+        wait = const(None)[:int(message.time/SAMPLE_RATE)]
+        if message.is_meta and not include_meta:
             return wait
         else:
-            return wait >> cons(msg, empty)
-    return iter_to_stream(MidiFile(filename)).map(message_to_events).join()
+            return wait >> cons(message, empty)
+    return iter_to_stream(mido.MidiFile(filename)).map(message_to_events).join()
 
 def render(stream, filename, rate=None, bpm=120):
     if rate is None:

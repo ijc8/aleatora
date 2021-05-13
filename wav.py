@@ -31,6 +31,7 @@ def load_mono(filename):
     audio = load(filename)
     return audio.sum(axis=1) / audio.shape[1]
 
+
 def save(comp, filename, chunk_size=16384, verbose=False):
     w = wave.open(filename, 'wb')
     sample, comp = core.peek(comp)
