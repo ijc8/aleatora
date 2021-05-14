@@ -8,8 +8,8 @@ from streamp3 import MP3Decoder
 import numpy as np
 from scipy import signal
 
-from core import *
-import wav
+from .core import *
+from . import wav
 
 ## Google TTS
 
@@ -102,5 +102,5 @@ def sing(*args, divide_duration=True, voice="us1_mbrola"):
             return to_stream(wav.load(rf, resample=True))
 
 if __name__ == '__main__':
-    import audio
+    from . import audio
     audio.run(speech("Hello world!"))

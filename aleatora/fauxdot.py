@@ -1,9 +1,9 @@
 import collections
 
-import core
-import wav
+from . import core
+from . import wav
 
-from FoxDot import (
+from FoxDotPatterns import (
     P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, ParsePlayString,
     Root, Scale, get_freq_and_midi, Samples, nil
 )
@@ -41,7 +41,7 @@ def patternish_to_stream(patternish, cycle=True):
     elif cycle:
         return core.const(patternish)
     else:
-        return core.cons(patternish, empty)
+        return core.cons(patternish, core.empty)
 
 # There are other things that can be patternish, like `root` or `sample`, but this just deals timing.
 # (degree is included because it may contain PGroups that affect subdivision timing.)
@@ -107,6 +107,7 @@ def events_to_samples(event_stream):
         return core.fit(sample, dur)
     return core.lazy_concat(event_stream.map(process_event))
 
+# TODO: Support sample
 # maybe support amplify?
 def beat(pattern, dur=0.5, sus=None, delay=0, sample=0, amp=1, bpm=120):
     if isinstance(pattern, str):

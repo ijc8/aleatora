@@ -1,10 +1,4 @@
-from core import *
-
-
-class Chord:
-    def __init__(self, notes, name='unknown'):
-        self.name = name
-        self.notes = sorted(notes)
+import aleatora as alt
 
 
 CHORD_ALIASES = {
@@ -16,6 +10,7 @@ CHORD_ALIASES = {
 }
 
 # TODO: support extensions and alterations
+# or perhaps rely on another library for this, like mingus.
 CHORD_TYPES = {
     '': (0, 4, 7),
     'm': (0, 3, 7),
@@ -42,16 +37,15 @@ PITCH_CLASS_ALIASES = {
 
 PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
+
 def spn_to_pitch(cls, oct):
     "Convert Scientific Pitch Notation (pitch class + octave) to a numeric (MIDI) pitch."
     cls = PITCH_CLASS_ALIASES.get(cls, cls)
     return PITCH_CLASSES.index(cls) + (oct + 1) * 12
 
-
-# TODO: more voicing options?
-def C(name, inv=0, oct=4):
+def get_chord_by_name(name, inv, oct):
     root = name[0]
-    assert(root.lower() in 'abcdefg')
+    assert root.lower() in 'abcdefg'
     ctype = name[1:]
     if ctype and ctype[0] in '#b':
         root += ctype[0]
@@ -64,22 +58,41 @@ def C(name, inv=0, oct=4):
     if notes is None:
         raise ValueError(f'Unrecognized chord type: "{ctype}"')
     canonical_name = root + ctype
-    inv = inv % len(notes)
+    inv %= len(notes)
     notes = notes[inv:] + tuple(pitch + 12 for pitch in notes[:inv])
     root_pitch = spn_to_pitch(root, oct)
     notes = [pitch + root_pitch for pitch in notes]
-    return Chord(notes, name=canonical_name)
+    return (canonical_name, notes)
 
 
-# Unlike the lower-level synthesis streams, these streams do not yield samples.
-# Instead, they yield notes - tuples of (pitch, duration in beats).
-def arp(chord, dur=1/8):
-    return cycle(list_to_stream(chord.notes)).map(lambda p: (p, dur))
+class chord:
+    """Simple chord class.
+    
+    Create from MIDI notes via `chord([60,64,67])` or by name via `chord('C')`,
+    optionally specifiying the inversion and octave.
+    """
+    # TODO: more voicing options?
+    def __init__(self, descriptor, name=None, notes=None, inv=0, oct=4):
+        if isinstance(descriptor, str):
+            assert name is None
+            name = descriptor
+        else:
+            assert notes is None
+            notes = descriptor
+        if notes:
+            self.name = name
+            self.notes = sorted(notes)
+        else:
+            self.name, self.notes = get_chord_by_name(name, inv, oct)
+        
+    # Unlike the lower-level synthesis streams, these streams do not yield samples.
+    # Instead, they yield notes - tuples of (pitch, duration in beats).
+    def arp(self, dur=1/8):
+        return alt.to_stream(self.notes).cycle().map(lambda p: (p, dur))
 
-
-def alberti(chord, dur=1/8):
-    sequence = []
-    for lower in chord.notes[:-1]:
-        sequence.append(lower)
-        sequence.append(chord.notes[-1])
-    return cycle(list_to_stream(sequence)).map(lambda p: (p, dur))
+    def alberti(self, dur=1/8):
+        sequence = []
+        for lower in self.notes[:-1]:
+            sequence.append(lower)
+            sequence.append(self.notes[-1])
+        return alt.to_stream(sequence).cycle().map(lambda p: (p, dur))

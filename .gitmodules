@@ -1,3 +1,3 @@
-[submodule "FoxDot"]
-	path = FoxDot
-	url = https://github.com/ijc8/FoxDot/
+[submodule "FoxDotPatterns"]
+	path = FoxDotPatterns
+	url = https://github.com/ijc8/FoxDotPatterns/

@@ -1,4 +1,4 @@
-import core
+from . import core
 
 import numpy as np
 from scipy import signal

@@ -1,11 +1,8 @@
-import core
+import traceback
 
 import sounddevice as sd
-import numpy as np
 
-import atexit
-import time
-import traceback
+from . import core
 
 
 # Non-interactive version; blocking, cleans up and returns when the composition is finished.
@@ -120,8 +117,17 @@ def play_record_callback(indata, outdata, frames, time, status):
 # play(a, b) -> plays the mono streams a, b together in stereo
 
 
-def play(*streams):
+def play(*streams, mix=False):
     global _samples
+
+    if mix:
+        # Add another layer to playback without resetting the position of existing layers.
+        if len(streams) == 1:
+            play(_samples.rest + streams[0])
+        elif len(streams) > 1:
+            play(_samples.rest + core.ZipStream(streams).map(core.frame))
+        return
+
     if not streams:
         stream = core.empty
         channels = _channels
@@ -139,8 +145,3 @@ def play(*streams):
     elif _channels < channels:
         setup(device=_stream.device, channels=channels, input=isinstance(_stream, sd.InputStream))
     _samples = iter(stream)
-
-
-# Add another layer to playback without resetting the position of existing layers.
-def addplay(layer):
-    play(_samples.rest + layer)

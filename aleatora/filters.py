@@ -1,6 +1,4 @@
-from core import *
-
-import numpy as np
+from .core import *
 
 import math
 
@@ -8,51 +6,23 @@ import math
 # For reference:
 # https://www.musicdsp.org/en/latest/Filters/142-state-variable-filter-chamberlin-version.html
 # Seems unstable at 1/2 of Nyquist (1/4 of sampling rate)
-def svf_block(input, sample_rate, f, q):
-    """Chamberlin state-variable filter.
 
-    input: input array
-    sample_rate: sample rate
-    f: center frequency
-    q: resonance parameter
-    """
+# Constant frequency version:
+# @raw_stream
+# def svf_proto(stream, f, q, prev_low=0, prev_band=0):
+#     def closure():
+#         result = stream()
+#         if isinstance(result, Return):
+#             return result
+#         x, next_stream = result
 
-    # q goes from .5 to infinity; q1 goes from 2 to 0.
-    q1 = 1/q
-    #f1 = 2*math.pi*f/sample_rate
-    # ideal tuning:
-    f1 = 2*math.sin(math.pi * f / sample_rate)
-
-    low, high, band, notch = np.zeros((4, len(input)))
-
-    d1, d2 = 0, 0
-    for i in range(len(input)):
-        low[i] = d2 + f1 * d1
-        high[i] = input[i] - low[i] - q1*d1
-        band[i] = f1 * high[i] + d1
-        notch[i] = high[i] + low[i]
-
-        # store delays
-        d1 = band[i]
-        d2 = low[i]
-
-    return low, high, band, notch
-
-@raw_stream
-def svf_proto(stream, f, q, prev_low=0, prev_band=0):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return result
-        x, next_stream = result
-
-        f1 = 2*math.sin(math.pi * f / SAMPLE_RATE)
-        low = prev_low + f1 * prev_band
-        high = x - low - 1/q * prev_band
-        band = f1 * high + prev_band
-        # notch = high + low
-        return ((low, high, band), svf(next_stream, f, q, low, band))
-    return closure
+#         f1 = 2*math.sin(math.pi * f / SAMPLE_RATE)
+#         low = prev_low + f1 * prev_band
+#         high = x - low - 1/q * prev_band
+#         band = f1 * high + prev_band
+#         # notch = high + low
+#         return ((low, high, band), svf_proto(next_stream, f, q, low, band))
+#     return closure
 
 @raw_stream
 def svf(stream, f_stream, q, prev_low=0, prev_band=0):
@@ -69,6 +39,7 @@ def svf(stream, f_stream, q, prev_low=0, prev_band=0):
         f, next_f_stream = result
 
         # f1 = 2*math.sin(math.pi * f / SAMPLE_RATE)
+        # Faster approximation:
         f1 = 2*math.pi*f/SAMPLE_RATE
         low = prev_low + f1 * prev_band
         high = x - low - 1/q * prev_band
@@ -140,7 +111,7 @@ def var_comb(stream, amp, delay_stream, max_delay):
             return y, x
         else:
             return y, y
-    return filters.feed(stream.zip(delay_stream), max_delay + 1, fn)
+    return feed(stream.zip(delay_stream), max_delay + 1, fn)
 
 
 # play(bpf(rand, 1000 + 500 * osc(0.1), 5))

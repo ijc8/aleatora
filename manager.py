@@ -62,7 +62,7 @@ class StreamManager:
             stream = resource
         elif isinstance(resource, types.FunctionType) and resource.metadata.get('instrument'):
             p = mido.open_input(mido.get_input_names()[1])
-            stream = resource(event_stream(p))
+            stream = resource(input_stream(p))
         else:
             raise ValueError(f"Expected Stream or instrument, got {type(resource)}.")
         if name in self.streams and self.streams[name][0] is stream:
@@ -101,7 +101,7 @@ class StreamManager:
             recorded_stream = instrument(events_in_time(self.list_of_events))
             return (0, empty)
         # TODO: for now, this just records the next 5 seconds, but it should record until stopped.
-        self.play(name, instrument(event_stream(p)[:5.0].map(callback)) >> finish)
+        self.play(name, instrument(input_stream(p)[:5.0].map(callback)) >> finish)
         # Note that we could make an /audio-level/ recording instead by memoizing
         # Instead of actually using memoize(), would use callback() to append to an internal list_of_samples.
         # Create a ListStream afterwards.

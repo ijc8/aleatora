@@ -1,5 +1,5 @@
 import mido
-from core import *
+from .core import *
 
 # TODO: Events as lists of messages.
 # (This will address the issue of simultaneous events, or delta time = 0 in MIDI data.)
@@ -12,7 +12,7 @@ from core import *
 get_input_names = mido.get_input_names
 
 @stream
-def event_stream(port=None):
+def input_stream(port=None):
     if port is None:
         port = get_input_names()[-1]
     if isinstance(port, str):

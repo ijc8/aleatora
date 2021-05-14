@@ -620,10 +620,23 @@ def to_stream(x):
 def osc(freq, phase=0):
     return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
 
-# NOTE: Aliased.
+# NOTE: Aliased. For versions that don't alias, see aa_{saw,sqr,tri}.
+@stream
+def saw(freq):
+    return count().map(lambda t: (t * freq/SAMPLE_RATE % 1) * 2 - 1)
+
 @stream
 def sqr(freq):
     return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < 0.5) * 2 - 1)
+
+@stream
+def tri(freq):
+    def helper(t):
+        pos = t * freq/SAMPLE_RATE % 1
+        if pos > 0.5:
+            pos = 1 - pos
+        return pos * 2 - 1
+    return count().map(helper)
 
 def basic_envelope(length):
     length = convert_time(length)
@@ -845,12 +858,6 @@ def flip(a, b):
 @stream
 def pan(stream, pos):
     return stream.map(lambda x: (x * (1 - pos), x * pos))
-
-# TODO: Make this more elegant.
-# e.g. variant of ZipStream that yields a special type (with overloaded arithmetic) rather than tuples.
-@stream
-def stereo_add(self, other):
-    return ZipStream((self, other)).map(lambda p: (p[0][0] + p[1][0], p[0][1] + p[1][1]))
 
 def normalize(stream):
     # Requires evaluating the whole stream to determine the max volume.

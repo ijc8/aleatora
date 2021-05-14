@@ -1,43 +1,45 @@
-# This module transforms standard Python generators into Aleatora streams.
-# Streams are similar to generators, in that they likewise lazily yield a sequence of values,
-# but they are distinct in that they are typically immutable and may be replayed from any point.
-#
-# Python generators are advanced via `next()`, which returns the next value and mutates the
-# generator object, preventing earlier points in the sequence from being accessed or re-executed.
-# Streams are advanced by calling the stream. This does not (usually) mutate the stream,
-# but returns a tuple (value, next_stream), where next_stream represents the rest of the stream.
-# Thus, a stream may be played back from an earlier point by simply calling that point again.
-#
-# This transformation is triggered via decorator, @generator_stream, which turns a generator function
-# (which returns a generator object when called) into a stream function (which returns a stream when called).
-# The transformation works internally by parsing the function, transforming its AST, and executing the result.
-# The generator function is transformed such that `yield` is no longer necessary; instead, values are yielded,
-# and the computation is suspended, by returning a value and the next function to call.
-# This requires splitting the generator function up into many smaller functions, each representing one basic
-# block of a control-flow graph. For example, when the original generator yields, the corresponding function
-# returns ('yield', <next function to call>, <local variables>)
-#
-# The transformation is careful to preserve the semantics of the original generator function,
-# including if/else, for/else, while/else, break, continue, return and (partially) try/except/else/finally,
-# with the following caveats/known issues (TODO):
-# - Control flow breaks (break/continue/return) are not supported in `try` blocks.
-# - `finally` is not supported.
-# - Exception variables will not survive past control flow breaks
-#   (and they will not implicitly delete locals with the same name).
-# - `yield from` is not supported.
-# - `yield` as an expression is not supported (it must appear as a statement).
-# - Local variables (except for arguments) are initialized as `None`, so accessing them before they are set
-#   will not raise `UnboundLocalError`.
-#   (Fixing this will probably require translating local access into attribute access on a special object
-#    which raises `UnboundLocalError` instead of `AttributeError`.)
-# - Using `del` on locals (without setting the local afterward) is not supported.
+"""Transform standard Python generators into Aleatora streams.
+
+Streams are similar to generators, in that they likewise lazily yield a sequence of values,
+but they are distinct in that they are typically immutable and may be replayed from any point.
+
+Python generators are advanced via `next()`, which returns the next value and mutates the
+generator object, preventing earlier points in the sequence from being accessed or re-executed.
+Streams are advanced by calling the stream. This does not (usually) mutate the stream,
+but returns a tuple (value, next_stream), where next_stream represents the rest of the stream.
+Thus, a stream may be played back from an earlier point by simply calling that point again.
+
+This transformation is triggered via decorator, @generator_stream, which turns a generator function
+(which returns a generator object when called) into a stream function (which returns a stream when called).
+The transformation works internally by parsing the function, transforming its AST, and executing the result.
+The generator function is transformed such that `yield` is no longer necessary; instead, values are yielded,
+and the computation is suspended, by returning a value and the next function to call.
+This requires splitting the generator function up into many smaller functions, each representing one basic
+block of a control-flow graph. For example, when the original generator yields, the corresponding function
+returns ('yield', <next function to call>, <local variables>)
+
+The transformation is careful to preserve the semantics of the original generator function,
+including if/else, for/else, while/else, break, continue, return and (partially) try/except/else/finally,
+with the following caveats/known issues (TODO):
+- Control flow breaks (break/continue/return) are not supported in `try` blocks.
+- `finally` is not supported.
+- Exception variables will not survive past control flow breaks
+  (and they will not implicitly delete locals with the same name).
+- `yield from` is not supported.
+- `yield` as an expression is not supported (it must appear as a statement).
+- Local variables (except for arguments) are initialized as `None`, so accessing them before they are set
+  will not raise `UnboundLocalError`.
+  (Fixing this will probably require translating local access into attribute access on a special object
+   which raises `UnboundLocalError` instead of `AttributeError`.)
+- Using `del` on locals (without setting the local afterward) is not supported.
+"""
 
 import ast
 import inspect
 
 import astor
 
-import core
+from . import core
 
 
 ## AST helpers
