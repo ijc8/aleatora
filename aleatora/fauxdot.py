@@ -19,7 +19,7 @@ def buffer_read(buffer):
         buffer.stream = core.to_stream([core.frame(x) for x in data.tolist()])
 
 def buffer_free(buffer):
-    # Nothing needs to see here; buffer should get garbage-collected, and so should buffer.stream.
+    # Nothing to see here; buffer should get garbage-collected, and so should buffer.stream.
     pass
 
 Samples.buffer_read = buffer_read

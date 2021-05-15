@@ -3,7 +3,7 @@
 from .audio import input_stream, play, query_devices, run, setup, volume
 from .chord import chord
 from .core import *
-from .fauxdot import beat, tune
+from .fauxdot import beat, P, tune
 from .filters import *
 from . import midi
 from . import net
