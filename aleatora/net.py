@@ -25,14 +25,14 @@ def unblock(blocking_stream, filler=None, hold=False):
     These can either be a specific value (None by default), or the last computed value if hold is True.
     """
     ret = None
+    thread = None
     def wrapper():
         nonlocal ret
         ret = blocking_stream()
-    t = threading.Thread(target=wrapper)
     @Stream
     def closure():
-        nonlocal t
-        if t.is_alive():
+        nonlocal thread
+        if thread.is_alive():
             return (filler, closure)
         if isinstance(ret, Return):
             return ret
@@ -40,7 +40,10 @@ def unblock(blocking_stream, filler=None, hold=False):
         return (value, unblock(next_stream, value if hold else filler, hold))
     # NOTE: We wait until the first sample is requested to start the thread.
     def init():
-        t.start()
+        nonlocal thread
+        if not thread:
+            thread = threading.Thread(target=wrapper)
+            thread.start()
         return closure()
     return init
 
