@@ -3,8 +3,6 @@ from io import BytesIO
 import subprocess
 import tempfile
 
-from gtts import gTTS
-from streamp3 import MP3Decoder
 import numpy as np
 from scipy import signal
 
@@ -18,6 +16,12 @@ def speech(text, lang='en', slow=False, tld='com', filename=None):
     """If filename is provided, load precomputed speech from that if it exists; otherwise save to it.
     (This is better than freezing because the audio is compressed, as provided by the server.)
     """
+    try:
+        from gtts import gTTS
+        from streamp3 import MP3Decoder
+    except ImportError as exc:
+        raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
+
     make_request = False
     if filename:
         try:
@@ -94,11 +98,14 @@ def sing(*args, divide_duration=True, voice="us1_mbrola"):
         print(xml, file=wf, flush=True)
         # TODO: Load wave directly from subprocess output instead of using temporary file.
         with tempfile.NamedTemporaryFile('rb') as rf:
-            subprocess.run([
-                "text2wave",
-                "-eval", f"(voice_{voice})",
-                "-mode", "singing",
-                wf.name, "-o", rf.name])
+            try:
+                subprocess.run([
+                    "text2wave",
+                    "-eval", f"(voice_{voice})",
+                    "-mode", "singing",
+                    wf.name, "-o", rf.name])
+            except FileNotFoundError:
+                raise FileNotFoundError("Failed to run 'text2wave'; install festival (http://www.festvox.org/festival).")
             return to_stream(wav.load(rf, resample=True))
 
 if __name__ == '__main__':
