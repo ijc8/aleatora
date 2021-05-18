@@ -5,7 +5,13 @@ __version__ = '0.1.0a0'
 from .audio import input_stream, play, query_devices, run, setup, volume
 from .chord import chord
 from .core import *
-from .fauxdot import beat, P, tune
+try:
+    from .fauxdot import beat, P, tune
+except ImportError as err:
+    _err = err  # Necessary because exception is deleted when the handler ends.
+    def optional_dependency_help(*args, **kwargs):
+        raise _err
+    beat = P = tune = optional_dependency_help
 from .filters import *
 from . import midi
 from . import net

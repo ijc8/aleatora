@@ -3,10 +3,16 @@ import collections
 from . import core
 from . import wav
 
-from FoxDotPatterns import (
-    P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, ParsePlayString,
-    Root, Scale, get_freq_and_midi, Samples, nil
-)
+try:
+    from FoxDotPatterns import (
+        P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, ParsePlayString,
+        Root, Scale, get_freq_and_midi, Samples, nil
+    )
+except ImportError as exc:
+    raise ImportError(
+        "Missing optional dependency 'FauxDotPatterns'.\n"
+        "Install via `python -m pip install https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip`."
+    )
 
 nil.stream = core.empty
 

@@ -24,10 +24,6 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 
-packages = setuptools.find_packages(where="src") + setuptools.find_packages(where="FoxDotPatterns")
-if "tests" in packages:
-    packages.remove("tests")
-
 setuptools.setup(
     name="aleatora", # Replace with your own username
     version=version,
@@ -47,13 +43,8 @@ setuptools.setup(
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
     ],
-    package_dir={"": "src", "FoxDotPatterns": "FoxDotPatterns/FoxDotPatterns"},
-    package_data = {'FoxDotPatterns': [
-        'snd/*/*',
-        'snd/*/*/*',
-        'lib/.version',
-    ]},
-    packages=packages,
+    package_dir={"": "src"},
+    packages=setuptools.find_packages(where="src"),
     python_requires=">=3.6",
     install_requires=[
         "astor",  # TODO: Remove dependency after upgrading to Python >= 3.9, which has ast.unparse().
@@ -65,5 +56,7 @@ setuptools.setup(
     ],
     extras_require={
         "speech": ["gtts", "streamp3~=0.1.7"],
+        # NOTE: This will not work when installing from PyPI, because it's a non-PyPI URL.
+        "foxdot": ["FoxDotPatterns @ https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip"]
     }
 )
