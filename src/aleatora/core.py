@@ -608,7 +608,9 @@ def to_stream(x):
     if isinstance(x, Stream):
         return x
     if isinstance(x, np.ndarray):
-        return ListStream(array.array('d', x))
+        if len(x.shape) == 1:
+            return ListStream(array.array('d', x))
+        return ListStream(x.tolist())
     return ListStream(x)
 
 # @stream
@@ -864,7 +866,7 @@ def normalize(stream):
     # Works for any number of channels.
     print('Rendering...')
     t = time.time()
-    a = np.array(stream)
+    a = np.array(list(stream))
     print('Done in', time.time() - t)
     peak = np.max(np.abs(a))
     return to_stream(a / peak)

@@ -1,9 +1,7 @@
-from core import *
-from chord import *
-import wav
+from aleatora import *
 
-c = Chord((60, 64, 67, 72))
-m = freeze(basic_sequencer(arp(c)[:4], bpm=20))
+c = chord((60, 64, 67, 72))
+m = freeze(basic_sequencer(c.arp()[:4], bpm=20)).cycle()
 
 # (time, modulation frequency)
 freq_points = [
@@ -43,9 +41,9 @@ low_rate = 1 + fm_osc(mod_freq) * mod_depth
 mid_rate = 2 + fm_osc(mod_freq) * mod_depth
 high_rate = 3 + fm_osc(mod_freq) * mod_depth
 
-low = resample(cycle(m), low_rate)
-mid = silence[:5.0] >> (resample(cycle(m), mid_rate[5.0:]) * basic_envelope(58.0 - 5.0))
-high = silence[:10.0] >> (resample(cycle(m), high_rate[10.0:]) * basic_envelope(56.0 - 10.0))
+low = resample(m, low_rate)
+mid = silence[:5.0] >> (resample(m, mid_rate[5.0:]) * basic_envelope(58.0 - 5.0))
+high = silence[:10.0] >> (resample(m, high_rate[10.0:]) * basic_envelope(56.0 - 10.0))
 
 composition = (low + mid + high)/3
 wav.save(composition, "csick.wav", verbose=True)

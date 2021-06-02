@@ -1,8 +1,7 @@
-from core import *
-import audio
+from aleatora import *
 import numpy as np
 
-@stream("convolve")
+@stream
 def convolve(stream, impulse_response, mode='same', prev_values=None):
     if prev_values is None:
         prev_values = np.zeros(len(impulse_response))
@@ -30,4 +29,4 @@ main = cycle(saw(m2f(40)) * basic_envelope(0.25) >> silence[:0.25])
 
 
 if __name__ == '__main__':
-    audio.play(main)
+    run(main)

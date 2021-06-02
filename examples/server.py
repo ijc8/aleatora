@@ -6,7 +6,7 @@ import wave
 
 import numpy as np
 
-import core
+import aleatora
 from phase import piano_phase
 
 
@@ -47,7 +47,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             w = wave.open(f, 'wb')
             w.setnchannels(1)
             w.setsampwidth(2)
-            w.setframerate(core.SAMPLE_RATE)
+            w.setframerate(aleatora.SAMPLE_RATE)
             # Hack to get wave data length set near max in header
             w.setnframes((0xffffffff - 36)//2)
             total = 0
