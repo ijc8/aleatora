@@ -23,6 +23,9 @@ version = get_version("src/aleatora/__init__.py")
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+# Dependencies for optional features
+speech = ["gtts", "streamp3~=0.1.7"]
+foxdot = ["FoxDotPatterns @ https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip"]
 
 setuptools.setup(
     name="aleatora", # Replace with your own username
@@ -55,8 +58,9 @@ setuptools.setup(
         "sounddevice",
     ],
     extras_require={
-        "speech": ["gtts", "streamp3~=0.1.7"],
+        "speech": speech,
         # NOTE: This will not work when installing from PyPI, because it's a non-PyPI URL.
-        "foxdot": ["FoxDotPatterns @ https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip"]
+        "foxdot": foxdot,
+        "all": speech + foxdot,
     }
 )
