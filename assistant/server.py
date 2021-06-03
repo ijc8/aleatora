@@ -11,11 +11,9 @@ import cloudpickle
 import psutil
 import websockets
 
-from core import *
-import audio
-from speech import *
-from midi import *
-from manager import *
+from aleatora import *
+from aleatora import audio
+from manager import StreamManager
 
 
 # Based on https://stackoverflow.com/questions/3906232/python-get-the-print-output-in-an-exec-statement
@@ -151,7 +149,6 @@ def save(resource, resource_name):
 tune_a = osc(440)
 tune_b = osc(660)[:1.0] >> osc(880)[:1.0]
 # my_cool_envelope = load("my_cool_envelope")
-import wav
 # my_cool_sound = to_stream(wav.load_mono('samples/a.wav'))
 
 # my_cool_seq = load("my_cool_seq")
@@ -198,8 +195,6 @@ def serialize(resource):
         return {'type': 'function', 'name': resource.__qualname__, 'doc': resource.__doc__, 'signature': str(inspect.signature(resource)), **resource.metadata}
     else:
         assert(False)
-        
-    return dfs(resource)
 
 def get_resources():
     # Collect the resources within each module.
@@ -208,15 +203,16 @@ def get_resources():
     # NOTE: We traverse `core` first (so it gets to claim core streams like `silence`, despite other modules doing `from core import *`),
     # but we put `__main__` in `resources` first so that it gets listed first.
     resources = {'__main__': {}}
-    queue = [('__main__', sys.modules['__main__']), ('core', sys.modules['core'])]
+    queue = ['aleatora.core', 'aleatora.audio', '__main__']
+    queue += [name for name in sys.modules if name.startswith('aleatora') and name not in queue]
     while queue:
-        module_name, module = queue.pop()
+        module_name = queue.pop(0)
         if module_name in stream_registry:
             for var_name, value in stream_registry[module_name].items():
                 if value.__module__ not in resources:
                     resources[value.__module__] = {}
                 resources[value.__module__][var_name] = value
-        for var_name, value in module.__dict__.items():
+        for var_name, value in sys.modules[module_name].__dict__.items():
             if isinstance(value, Stream):
                 if (var_name, value) not in variables_seen:
                     variables_seen.add((var_name, value))
@@ -227,7 +223,7 @@ def get_resources():
             # (Calling __dict__ on the portaudio FFI yields "ffi.error: symbol 'PaMacCore_GetChannelName' not found")
             elif type(value) is types.ModuleType and value not in modules_seen:
                 modules_seen.add(value)
-                queue.append((var_name, value))
+                queue.append(value.__name__)
     return resources
 
 # https://stackoverflow.com/questions/33000200/asyncio-wait-for-event-from-other-thread
@@ -280,7 +276,7 @@ async def serve(websocket, path):
         # TODO: only refresh if streams changed
         resources = get_resources()
         def get_resource(name):
-            module, name = name.split(".", 1)
+            module, name = name
             return resources[module][name]
 
         serialized_resources = {module: {variable: serialize(value) for variable, value in module_contents.items()} for module, module_contents in resources.items()}
@@ -295,23 +291,22 @@ async def serve(websocket, path):
                 break
             elif cmd == 'play': 
                 name = data['name']
-                playing_stream = name
-                manager.play(name, get_resource(name))
+                manager.play(tuple(name), get_resource(name))
             elif cmd == 'pause':
-                manager.pause(data['name'])
+                manager.pause(tuple(data['name']))
             elif cmd == 'record':
                 name = data['name']
-                manager.record(name, get_resource(name))
+                manager.record(tuple(name), get_resource(name))
             elif cmd == 'stop':
-                manager.stop(data['name'])
+                manager.stop(tuple(data['name']))
             elif cmd == 'rewind':
-                manager.rewind(data['name'])
+                manager.rewind(tuple(data['name']))
             elif cmd == 'save':
                 name = data['name']
                 resource = type_map[data['type']](data['payload'])
-                resource_name = resource_map.get(get_resource(name), name)
-                module, name = name.split('.')
-                sys.modules[module].__dict__[name] = resource
+                resource_name = resource_map.get(get_resource(name), ".".join(name))
+                module, var_name = name
+                sys.modules[module].__dict__[var_name] = resource
                 save(resource, resource_name)
                 break
             elif cmd == 'openproject':

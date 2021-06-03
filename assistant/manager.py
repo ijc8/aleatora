@@ -5,8 +5,7 @@ import types
 
 import mido
 
-from core import *
-from midi import *
+from aleatora import *
 
 
 class StreamManager:

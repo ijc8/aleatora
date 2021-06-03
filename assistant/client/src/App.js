@@ -145,7 +145,7 @@ const tabMap = {
   "speech": SpeechTab,
 }
 
-const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
+const ResourceDetails = ({ name, resource, playing, setPlaying, record, rewind, stop }) => {
   const [_expanded, setExpanded] = useState(-1)
 
   let tabs = [InspectorTab]
@@ -160,26 +160,20 @@ const ResourceDetails = ({ name, resource, playing, setPlaying }) => {
   return (
     <div className="resource-details">
       <div className="resource-controls">
-        <button className="resource-control" style={{borderLeft: 'none'}} onClick={() => {
-          send({ cmd: "rewind", name })
-        }}>
+        <button className="resource-control" style={{borderLeft: 'none'}} onClick={rewind}>
           <Icon name="history" />
         </button>
         <button className="resource-control" onClick={() => {
-          send({ cmd: playing ? "pause" : "play", name })
           console.log(name)
           setPlaying(!playing)
         }}>
           <Icon name={playing ? "pause" : "play_arrow"} />
         </button>
         {resource.instrument &&
-        <button className="resource-control" onClick={() => send({ cmd: "record", name })}>
+        <button className="resource-control" onClick={record}>
           <Icon name="fiber_manual_record" style={{color: "red", fontSize: "18px", paddingLeft: "2px", paddingBottom: "1px"}} />
         </button>}
-        <button className="resource-control" style={{borderRight: '1px solid black'}} onClick={() => {
-          send({ cmd: "stop", name })
-          setPlaying(false)
-        }}>
+        <button className="resource-control" style={{borderRight: '1px solid black'}} onClick={stop}>
           <Icon name="stop" />
         </button>
         <div className="flex-spacer">{/* Maybe seek controls go here? */}</div>
@@ -291,15 +285,12 @@ const filterResources = (modules, filter) => {
   return filtered
 }
 
-const Resource = ({ name, fullName, value, focus, setFocus, playing, setPlaying }) => {
+const Resource = ({ name, value, focus, setFocus, playing, setPlaying }) => {
   const icon = (value.type === "stream" ? "water" : (value.instrument ? "piano" : "microwave"))
   return <li onClick={setFocus} className={focus ? "focused" : ""}>
     <span className="resource-name"><Icon name={icon} /> {name}</span>
     {(value.type === "stream" || value.instrument) &&
-    <button onClick={() => {
-      send({ cmd: playing ? "pause" : "play", name: fullName })
-      setPlaying(!playing)
-    }} className="resource-pane-button"><Icon name={playing ? "pause" : "play_arrow"} /></button>}
+    <button onClick={() => setPlaying(!playing)} className="resource-pane-button"><Icon name={playing ? "pause" : "play_arrow"} /></button>}
   </li>
 }
 
@@ -314,8 +305,11 @@ const Module = ({ name, resources, expand, setExpand, focus, setFocus, playing, 
       {Object.entries(resources).map(([resourceName, value]) => {
         const fullName = `${name}.${resourceName}`
         return <Resource key={resourceName} name={resourceName} fullName={fullName} value={value}
-                         focus={focus === fullName} setFocus={() => setFocus(fullName)}
-                         playing={playing[fullName]} setPlaying={(p) => setPlaying({...playing, [fullName]: p})} />
+                         focus={focus !== null && focus.module === name && focus.name === resourceName} setFocus={() => setFocus(resourceName)}
+                         playing={playing[resourceName]} setPlaying={p => {
+                           send({ cmd: p ? "play" : "pause", name: [name, resourceName] })
+                           setPlaying({ ...playing, [resourceName]: p })
+                         }} />
       })}
     </ul>}
   </li>
@@ -333,9 +327,9 @@ const ResourcePane = ({ resources, focus, setFocus, playing, setPlaying }) => {
       <ul className="module-list">
         {Object.entries(resources).map(([name, value]) =>
           <Module key={name} name={name} resources={value}
-                  expand={expand[name] === undefined ? true : expand[name]} setExpand={(e) => setExpand({ ...expand, [name]: e })}
-                  focus={focus} setFocus={setFocus}
-                  playing={playing} setPlaying={setPlaying} />)}
+                  expand={expand[name] === undefined ? true : expand[name]} setExpand={e => setExpand({ ...expand, [name]: e })}
+                  focus={focus} setFocus={resourceName => setFocus(name, resourceName)}
+                  playing={(focus !== null && playing[focus.module]) ?? {}} setPlaying={p => setPlaying({...playing, [name]: p})} />)}
       </ul>
     </div>
   </>
@@ -414,7 +408,8 @@ const App = () => {
   const editor = useRef()
   const [resources, setResources] = useState({})
   const [playing, setPlaying] = useState({})
-  const [focus, setFocus] = useState(null)
+  const [focus, _setFocus] = useState(null)
+  const setFocus = (module, name) => _setFocus({ module, name })
   const [usage, setUsage] = useState({cpu: "?", memory: "?"})
 
   const create = () => {
@@ -431,12 +426,9 @@ const App = () => {
     send({cmd: "saveproject", name, editor: editor.current.getModel().getValue(), repl: replContents})
   }
 
-  let focusModule = null, focusName = null, focusResource = null
+  let focusResource = null
   if (focus !== null) {
-    const [first, ...rest] = focus.split(".")
-    focusModule = first
-    focusName = rest.join(".")
-    focusResource = resources[focusModule][focusName]
+    focusResource = resources[focus.module][focus.name]
   }
 
   useEffect(() => {
@@ -448,14 +440,15 @@ const App = () => {
       } else if (data.type === "output") {
         dispatch(repl.appendOutput(data.output))
       } else if (data.type === "finish") {
-        setPlaying({...playing, [data.name]: false})
+        const [module, name] = data.name
+        setPlaying({ ...playing, [module]: { ...playing[module] ?? {}, [name]: false } })
       } else if (data.type === "project") {
         editor.current.getModel().setValue(data.editor)
         // TODO: Restore REPL history.
         dispatch(repl.setContents(data.repl))
         dispatch(repl.setInputStart(data.repl.length))
       } else if (data.type === "usage") {
-        setUsage({cpu: data.cpu.toFixed(1) + "%", memory: +(Math.round(data.memory + "e+2")  + "e-2") + " MB"})
+        setUsage({ cpu: data.cpu.toFixed(1) + "%", memory: +(Math.round(data.memory + "e+2")  + "e-2") + " MB" })
       } else if (data.type === "error") {
         console.log(data)
       }
@@ -482,8 +475,8 @@ const App = () => {
           <div className="title">
             {focus !== null &&
             <>
-              {focusModule !== "__main__" && <span className="title-module">{focusModule}.</span>}
-              <span>{focusName}</span>
+              {focus.module !== "__main__" && <span className="title-module">{focus.module}.</span>}
+              <span>{focus.name}</span>
             </>}
           </div>
 
@@ -498,8 +491,18 @@ const App = () => {
           <ResourcePane resources={resources} focus={focus} setFocus={setFocus} playing={playing} setPlaying={setPlaying} />
           <div className="details">
             {focus !== null &&
-            <ResourceDetails name={focus} resource={focusResource}
-                            playing={playing[focus]} setPlaying={(p) => setPlaying({...playing, [focus]: p})} />}
+            <ResourceDetails
+              name={focus.module + "." + focus.name} resource={focusResource} playing={playing?.[focus.module]?.[focus.name]}
+              setPlaying={(p) => {
+                send({ cmd: p ? "play" : "pause", name: [focus.module, focus.name] })
+                setPlaying({ ...playing, [focus.module]: { ...playing[focus.module] ?? {}, [focus.name]: p } })
+              }}
+              rewind={() => send({ cmd: "rewind", name: [focus.module, focus.name] })}
+              record={() => send({ cmd: "record", name: [focus.module, focus.name] })}
+              stop={() => {
+                send({ cmd: "stop", name: [focus.module, focus.name] })
+                setPlaying({ ...playing, [focus.module]: { ...playing[focus.module] ?? {}, [focus.name]: false } })
+              }} />}
           </div>
           <div className="editor">
             <CodeEditor editor={editor} />
