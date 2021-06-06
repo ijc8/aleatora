@@ -332,8 +332,11 @@ class MixStream(Stream):
         continuing = [result for result in results if not isinstance(result, Return)]
         if not continuing:
             return Return(results)
-        value = sum(x for x, _ in continuing)
-        next_streams = [s for _, s in continuing]
+        value = continuing[0][0]
+        next_streams = [continuing[0][1]]
+        for x, next_stream in continuing[1:]:
+            value += x
+            next_streams.append(next_stream)
         return (value, MixStream(next_streams))
 
     def __str__(self):
@@ -411,15 +414,15 @@ class ZipStream(Stream):
 class SliceStream(Stream):
     def __init__(self, stream, start, stop, step):
         # TODO: should start (drop) be eager?
-        # Negative values are unsupported.
-        assert(start is None or start >= 0)
-        assert(stop is None or stop >= 0)
-        # Additionally, step cannot be 0.
+        # Step cannot be 0.
         assert(step is None or step > 0)
         self.stream = stream
         self.start = convert_time(start) or 0
         self.stop = convert_time(stop)
         self.step = convert_time(step) or 1
+        # Negative values are unsupported.
+        assert(self.start >= 0)
+        assert(self.stop is None or self.stop >= 0)
 
     def __call__(self):
         if self.start > 0:

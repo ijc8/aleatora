@@ -1,15 +1,38 @@
+"""Support for event streams, messages, instruments, MIDI devices, and MIDI files.
+
+This module includes functions for working with MIDI devices and files,
+but it also describes a basic interface for _events_ and _instruments_
+which is useful even if you don't care about MIDI itself.
+
+A event consists of some data; for example, a typical MIDI message like `Message(type='note_on', note=60, velocity=100)`.
+The important thing is that events do not include timing information. Instead, the timing is inherent in the event stream.
+Event streams consist of tuples of events. The timestamp of an event is given by its position in the stream.
+At any point in the stream, multiple events may occur simultaneously (tuple of length > 1), or no events may occur (empty tuple).
+
+Because event streams yield tuples, they may be composed in parallel by addition:
+`event_stream_a + event_stream_b` creates a combined event stream with all the events from both.
+
+An _instrument_ is any function that takes an event stream and returns a sample stream.
+
+Example usage:
+play(midi.poly_instrument(midi.input_stream()))
+"""
 import mido
+
 from .core import *
 
-# TODO: Events as lists of messages.
-# (This will address the issue of simultaneous events, or delta time = 0 in MIDI data.)
-
-# Example usage:
-# print(mido.get_input_names())  # List available MIDI inputs.
-# p = mido.open_input(mido.get_input_names()[1])
-# play(poly_instrument, event_stream(p))
-
 get_input_names = mido.get_input_names
+
+# This is used interchangably with mido.Message, which (true to MIDI) doesn't allow float vlaues.
+# (Would use a namedtuple, but they lacks `defaults` in the version of PyPy I'm using.)
+class Message:
+    def __init__(self, type, note, velocity=None):
+        self.type = type
+        self.note = note
+        self.velocity = velocity
+    
+    def __repr__(self):
+        return f"Message({self.type}, {self.note}, {self.velocity})"
 
 @stream
 def input_stream(port=None):
@@ -17,18 +40,28 @@ def input_stream(port=None):
         port = get_input_names()[-1]
     if isinstance(port, str):
         port = mido.open_input(port)
-    return repeat(port.poll)
+    return repeat(lambda: tuple(port.iter_pending()))
 
 # TODO: test this
 def file_stream(filename, include_meta=False):
-    def message_to_events(message):
-        wait = const(None)[:int(message.time/SAMPLE_RATE)]
-        if message.is_meta and not include_meta:
-            return wait
-        else:
-            return wait >> cons(message, empty)
-    return iter_to_stream(mido.MidiFile(filename)).map(message_to_events).join()
+    def collect_messages():
+        simultaneous = []
+        timestamp = 0
+        for message in mido.MidiFile(filename):
+            delta = message.time/SAMPLE_RATE
+            if delta == 0:
+                if not message.is_meta or include_meta:
+                    simultaneous.append(message)
+            else:
+                timestamp += delta
+                yield const(())[:int(timestamp)]
+                timestamp -= int(timestamp)
+                if not message.is_meta or include_meta:
+                    yield cons(tuple(simultaneous), empty)
+                simultaneous = []
+    return iter_to_stream(collect_messages()).join()
 
+# TODO: test this
 def render(stream, filename, rate=None, bpm=120):
     if rate is None:
         rate = SAMPLE_RATE
@@ -36,18 +69,16 @@ def render(stream, filename, rate=None, bpm=120):
     track = mido.MidiTrack()
     mid.tracks.append(track)
     t = 0
-    for message in stream:
-        if message:
-            ticks = int(t * (bpm / 60) * mid.ticks_per_beat)
-            t -= ticks / mid.ticks_per_beat / (bpm / 60)
-            message.time = ticks
+    for messages in stream:
+        for message in messages:
+            message.time = int(t)
+            t -= int(t)
             track.append(message)
-        t += 1/rate
+        t += 1/rate * (bpm / 60) * mid.ticks_per_beat
     mid.save(filename)
 
-# Instruments take a stream of mido-style messages
-# (objects with `type`, `note`, `velocity` - or None, indicating no message)
-# and produce a stream of samples.
+# Instruments take a stream of tuples of MIDI-style messages
+# (objects with `type`, `note`, `velocity`) and produce a stream of samples.
 # Instruments may persist (continue streaming even when they are only producing silence) or not.
 # Persisting is useful for playing an instrument for a live or indeterminate source,
 # while not persisting is useful for sequencing, or building up instruments
@@ -60,18 +91,17 @@ def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
         result = stream()
         if isinstance(result, Return):
             return result
-        event, next_stream = result
-        if not event:
+        events, next_stream = result
+        if not events:
             next_freq = freq
             next_velocity = velocity
-        elif event.type == 'note_on':
-            next_freq = m2f(event.note)
-            next_velocity = event.velocity
-        elif event.type == 'note_off':
+        elif events[-1].type == 'note_on':
+            next_freq = m2f(events[-1].note)
+            next_velocity = events[-1].velocity
+        elif events[-1].type == 'note_off':
             next_freq = freq
             next_velocity = 0
         target_amp = next_velocity / 127
-        delta_amp = 0
         if amp > target_amp:
             next_amp = max(target_amp, amp - 1e-4)
         else:
@@ -88,8 +118,8 @@ def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
 def poly(monophonic_instrument, persist_internal=False):
     # Provides a 'substream' of messages for a single voice in a polyphonic instrument.
     def make_event_substream():
-        substream = lambda: (substream.message, substream)
-        substream.message = None
+        substream = lambda: (substream.events, substream)
+        substream.events = ()
         return substream
 
     @raw_stream(register=False)
@@ -98,23 +128,24 @@ def poly(monophonic_instrument, persist_internal=False):
             result = stream()
             if isinstance(result, Return):
                 return result
-            event, next_stream = result
+            events, next_stream = result
             next_substreams = substreams
             next_voices = []
             acc = 0
             # Clear old messages:
             for substream in substreams.values():
-                substream.message = None
-            if event:
+                substream.events = ()
+            for event in events:
                 if event.type == 'note_on':
                     if event.note in substreams:
                         # Retrigger existing voice
-                        substreams[event.note].message = event
+                        substreams[event.note].events = (event,)
                     else:
                         # New voice
-                        next_substreams = substreams.copy()
+                        if next_substreams is substreams:
+                            next_substreams = substreams.copy()
                         substream = make_event_substream()
-                        substream.message = event
+                        substream.events = (event,)
                         next_substreams[event.note] = substream
                         new_voice = monophonic_instrument(substream, persist=persist_internal)
                         # TODO: avoid duplication here?
@@ -125,13 +156,14 @@ def poly(monophonic_instrument, persist_internal=False):
                             next_voices.append(new_voice)
                 elif event.type == 'note_off':
                     if event.note in substreams:
-                        substreams[event.note].message = event
+                        substreams[event.note].events = (event,)
                         if not persist_internal:
-                            next_substreams = substreams.copy()
+                            if next_substreams is substreams:
+                                next_substreams = substreams.copy()
                             del next_substreams[event.note]
 
             if not persist and not next_voices:
-                return Result()
+                return Return()
 
             for voice in voices:
                 result = voice()
@@ -155,7 +187,7 @@ def seq_to_events(sequence, bpm=60):
     events = []
     time = 0
     for pitch, duration in sequence:
-        events.append((int(time), mido.Message(type='note_on', note=pitch)))
+        events.append((int(time), Message(type='note_on', note=pitch)))
         time += duration * 60 / bpm * SAMPLE_RATE
-        events.append((int(time) - 1, mido.Message(type='note_off')))
+        events.append((int(time) - 1, Message(type='note_off')))
     return events_in_time(events)

@@ -1,6 +1,7 @@
 import collections
 
 from . import core
+from . import midi
 from . import wav
 
 try:
@@ -111,7 +112,7 @@ def events_to_samples(event_stream):
             sample = core.silence[:delay] >> sample
         dur *= 60/bpm
         return core.fit(sample, dur)
-    return core.lazy_concat(event_stream.map(process_event))
+    return event_stream.map(process_event).join()
 
 # TODO: Support sample
 # maybe support amplify?
@@ -122,17 +123,12 @@ def beat(pattern, dur=0.5, sus=None, delay=0, sample=0, amp=1, bpm=120):
         sus = dur
     return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm))
 
-# TODO: maybe settle on this or mido.Message? mido.Message unfortunately doesn't allow float values (true to MIDI).
-# would use namedtuple but it lacks `defaults` in this version of pypy
-class Message:
-    def __init__(self, type, note, velocity=None):
-        self.type = type
-        self.note = note
-        self.velocity = velocity
+
 # BTW: may want to switch abstraction from one event per sample to a collection of events per sample
 # so e.g. notes can start simultaneously
 # TODO: can root, scale, oct be patterns?
 # Used for regular instruments (everything except play(), e.g. pluck()).
+@core.raw_stream
 def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct=5):
     def closure():
         result = event_stream()
@@ -147,10 +143,10 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
         sus *= 60/bpm
         # TODO: For the moment, we're capping sus at dur - 1 (sample). (does FoxDot allow overlap between notes in a single layer?)
         sus = min(dur - 1/core.SAMPLE_RATE, sus)
-        noteon = Message(type='note_on', note=pitch, velocity=int(amp*127))
-        noteoff = Message(type='note_off', note=pitch)
+        noteon = midi.Message(type='note_on', note=pitch, velocity=int(amp*127))
+        noteoff = midi.Message(type='note_off', note=pitch)
         recur = events_to_messages(next_event_stream, root=root, scale=scale, oct=oct)
-        return (noteon, core.const(None)[:sus] >> core.cons(noteoff, core.const(None)[:dur-sus-1/core.SAMPLE_RATE] >> recur))
+        return ((noteon,), core.const(())[:sus] >> core.cons((noteoff,), core.const(())[:dur-sus-1/core.SAMPLE_RATE] >> recur))
     return closure
 
 # Return an event stream suitable for passing into an instrument.
