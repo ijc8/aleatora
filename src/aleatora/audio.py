@@ -52,7 +52,7 @@ def volume(vol=None):
 # For convenience, expose this:
 query_devices = sd.query_devices
 
-def setup(device=None, channels=1, input=False):
+def setup(device=None, channels=1, input=False, **kwargs):
     global _channels, _stream, _samples
     if _stream:
         _cleanup()
@@ -60,9 +60,9 @@ def setup(device=None, channels=1, input=False):
     if device is not None:
         sd.default.device = device
     if input:
-        _stream = sd.Stream(channels=channels, callback=play_record_callback)
+        _stream = sd.Stream(channels=channels, callback=play_record_callback, **kwargs)
     else:
-        _stream = sd.OutputStream(channels=channels, callback=play_callback)
+        _stream = sd.OutputStream(channels=channels, callback=play_callback, **kwargs)
     core.SAMPLE_RATE = _stream.samplerate
     _stream.start()
     _channels = channels

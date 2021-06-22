@@ -123,7 +123,7 @@ def poly(monophonic_instrument, persist_internal=False):
         return substream
 
     @raw_stream(register=False)
-    def polyphonic_instrument(stream, substreams={}, voices=[], persist=True):
+    def polyphonic_instrument(stream, substreams={}, voices=[], persist=True, **kwargs):
         def closure():
             result = stream()
             if isinstance(result, Return):
@@ -137,9 +137,9 @@ def poly(monophonic_instrument, persist_internal=False):
                 substream.events = ()
             for event in events:
                 if event.type == 'note_on':
-                    if event.note in substreams:
+                    if event.note in next_substreams:
                         # Retrigger existing voice
-                        substreams[event.note].events = (event,)
+                        next_substreams[event.note].events = (event,)
                     else:
                         # New voice
                         if next_substreams is substreams:
@@ -147,7 +147,7 @@ def poly(monophonic_instrument, persist_internal=False):
                         substream = make_event_substream()
                         substream.events = (event,)
                         next_substreams[event.note] = substream
-                        new_voice = monophonic_instrument(substream, persist=persist_internal)
+                        new_voice = monophonic_instrument(substream, persist=persist_internal, **kwargs)
                         # TODO: avoid duplication here?
                         result = new_voice()
                         if not isinstance(result, Return):
@@ -155,8 +155,8 @@ def poly(monophonic_instrument, persist_internal=False):
                             acc += sample
                             next_voices.append(new_voice)
                 elif event.type == 'note_off':
-                    if event.note in substreams:
-                        substreams[event.note].events = (event,)
+                    if event.note in next_substreams:
+                        next_substreams[event.note].events = (event,)
                         if not persist_internal:
                             if next_substreams is substreams:
                                 next_substreams = substreams.copy()
@@ -171,7 +171,7 @@ def poly(monophonic_instrument, persist_internal=False):
                     sample, next_voice = result
                     acc += sample
                     next_voices.append(next_voice)
-            return (acc, polyphonic_instrument(next_stream, next_substreams, next_voices, persist))
+            return (acc, polyphonic_instrument(next_stream, next_substreams, next_voices, persist, **kwargs))
         return closure
     return polyphonic_instrument
 
