@@ -2,7 +2,7 @@ import traceback
 
 import sounddevice as sd
 
-from . import core
+from . import streams
 
 
 # Non-interactive version; blocking, cleans up and returns when the composition is finished.
@@ -16,7 +16,8 @@ def run(composition, blocksize=0):
             raise sd.CallbackStop
 
     with sd.OutputStream(channels=1, callback=callback, blocksize=blocksize) as stream:
-        core.SAMPLE_RATE = stream.samplerate
+        # TODO: Does this actually update streams.audio.SAMPLE_RATE?
+        streams.SAMPLE_RATE = stream.samplerate
         try:
             while stream.active:
                 sd.sleep(100)
@@ -89,7 +90,7 @@ def play_callback(outdata, frames, time, status):
     outdata *= _volume
 
 _input_sample = 0
-@core.FunctionStream
+@streams.FunctionStream
 def input_stream():
     while True:
         yield _input_sample
@@ -133,7 +134,7 @@ def play(*streams, mix=False):
     #     return
 
     if not streams:
-        stream = core.empty
+        stream = streams.empty
         channels = _channels
     elif len(streams) == 1:
         # Peek ahead to determine the number of channels automatically.
@@ -143,7 +144,7 @@ def play(*streams, mix=False):
         channels = 1
     else:
         # Passed multiple tracks; zip them together as channels.
-        stream = core.Stream.zip(*streams)
+        stream = streams.Stream.zip(*streams)
         channels = len(streams)
 
     if not _stream:
