@@ -1,194 +1,73 @@
-import array
+# Aleatora is a music composition framework built around streams.
+# In Python terms, streams are essentially rich iterables. As iterables, they are things which can construct iterators.
+# A stream may be called upon to produce many iterators, each of which may yield a new sequence of values.
+# Streams may or may not terminate, and they may or may not produce the same sequence of values on each iteration.
+# Streams can be specified directly, by defining a class that implements __iter__ or by defining a generator function.
+# Or, streams can be constructed out of other streams using the many functions that operate on streams, including overloaded operators.
+
+import collections
 import inspect
+import itertools
 import math
-import time
 import operator
-import random
-import os
-import pickle
-
-import numpy as np
-
-# This is the default sample rate, but it may be modified by audio module to
-# match what the audio device supports.
-SAMPLE_RATE = 44100
 
 
-# Tag for a stream's final return value.
-# (This allows to distinguish between a stream continuing, and a stream returning a final value which happens to look like continuation.)
-class Return:
-    def __init__(self, value=None):
-        self.value = value
-
-
-# Helper class for iterating over streams.
-class StreamIterator:
-    def __init__(self, stream):
-        # Note that this can be read by the user after a for loop, to get at the rest of the stream.
-        # (e.g. after `for i, x in zip(range(5), stream_iter):`; see drop() below for an example.)
-        self.rest = stream
-        self.returned = None
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        result = self.rest()
-        if isinstance(result, Return):
-            self.returned = result
-            raise StopIteration(result.value)
-        value, self.rest = result
-        return value
-
-
-# Preliminary magic for introspection.
-# This stuff is used by the assistant to list all streams, stream-creating functions, and instruments.
-
-# Registry of stream-creating functions.
-# There is no registry for streams themselves, because they can be identified by type (`isinstance(x, Stream)`).
-stream_registry = {}
-
-def make_namer(fn):
-    def closure(*args, **kwargs):
-        args = inspect.signature(fn).bind(*args, **kwargs).arguments
-        return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
-    return closure
-
-# If `json` is a string, indicate a single parameter that should be sent to the assistant.
-# If `json` is any other iterable, indicate multiple parameters instead (sent in an object).
-def make_inspector(fn, json=None):
-    def closure(*args, **kwargs):
-        ba = inspect.signature(fn).bind(*args, **kwargs)
-        ba.apply_defaults()
-        d = {
-            "name": fn.__name__,
-            "parameters": ba.arguments,
-        }
-        if json is not None:
-            if isinstance(json, str):
-                d["json"] = ba.arguments[json]
-            else:
-                d["json"] = {param: ba.arguments[param] for param in json}
-        return d
-    return closure
-
-def register_stream(f, **kwargs):
-    if f.__module__ not in stream_registry:
-        stream_registry[f.__module__] = {}
-    f.metadata = kwargs
-    stream_registry[f.__module__][f.__qualname__] = f
-    return f
-
-# This wraps primitive streams (functions) and gives them namers/inspectors.
-# Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
-# Assumes the decorated function is lazily recursive.
-# TODO: merge with @stream?
-def raw_stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
-    def wrapper(f):
-        nonlocal namer, inspector
-        namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f, json=json)
-        if register:
-            register_stream(f, **kwargs)
-        return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
-    if f:
-        return wrapper(f)
-    return wrapper
-
-# This is for naming streams that already return other streams (rather than beng lazily recursive).
-# NOTE: The NamedStream outer layer is only present at the start. Wrapping the entire stream creates excessive overhead.
-def stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
-    def wrapper(f):
-        nonlocal namer, inspector
-        namer = namer or make_namer(f)
-        inspector = inspector or make_inspector(f, json=json)
-        if register:
-            register_stream(f, **kwargs)
-        def inner(*args, **kwargs):
-            init_stream = f(*args, **kwargs)
-            def _inspector(*args, **kwargs):
-                d = inspector(*args, **kwargs)
-                d['implementation'] = init_stream
-                return d
-            return NamedStream(namer, init_stream, args, kwargs, _inspector)
-        return inner
-    if f:
-        return wrapper(f)
-    return wrapper
-
-# Helper function to reduce boilerplate in the class definition below.
-def make_stream_op(op, reversed=False):
+def _make_stream_op(op, reversed=False):
     if reversed:
         def fn(self, other):
-            # No need to handle the Stream case, because it will be handled by the non-reversed version.
+            # No need to handle the iterable case, because it will be handled by the non-reversed version.
             return self.map(lambda v: op(other, v))
         return fn
     def fn(self, other):
-        if isinstance(other, Stream):
-            return ZipStream([self, other]).map(lambda p: op(*p))
+        if isinstance(other, collections.Iterable):
+            return self.zip(other).map(lambda p: op(*p))
         return self.map(lambda v: op(v, other))
     return fn
 
+def stream(thing):
+    if inspect.isgeneratorfunction(thing):
+        return lambda *args, **kwargs: FunctionStream(lambda: thing(*args, **kwargs))
+    elif isinstance(thing, collections.Iterable):
+        return Stream(thing)
 
-# The Stream class.
-# This defines the Stream interface, serves as the parent for special kinds of streams,
-# and this serves as the "default" kind of stream for black-boxes
-class Stream:
-    def __init__(self, fn):
-        self.fn = fn
-
-    def __call__(self):
-        return self.fn()
-
+class Stream(collections.Iterable):
+    def __init__(self, iterable):
+        self.iterable = iterable
+    
     def __iter__(self):
-        return StreamIterator(self)
+        return iter(self.iterable)
 
-    ## Operators
-    # `a >> b` means a followed by b. (In tape terms, splicing.)
+    def __len__(self):
+        raise ValueError("Length unknown")
+
+    def maxlen(self):
+        return math.inf
+    
+    def minlen(self):
+        return 0
+
+    # `a >> b` means `a` followed by `b`: sequential composition.
+    # For streams of audio samples, this is akin to splicing tape together, or arranging tracks horizontally in a DAW.
     def __rshift__(self, other):
         return ConcatStream((self, other))
+    
+    def __rrshift__(self, other):
+        return ConcatStream((other, self))
 
-    # The remaining operators behave differently with streams and other types.
-    # If both arguments are streams, these operators will perform the operation element-wise along both streams.
+    # The other operators behave differently with streams and other types.
+    # If `other` is iterable, these operators will perform the operation element-wise along the stream and the other iterable.
     # If one argument is not a stream, the operators perform the same option (e.g. `* 2`) to each element along the one stream.
 
-    # `a + b` means a and b at the same time. (In tape terms, mixing two tapes down to one.)
+    # `a + b` means `a` and `b` at the same time.
+    # For streams of audio samples, this is akin to mixing two tapes down to one, or arranging tracks vertically in a DAW.
     # Unlike *, /, etc., this operator keeps going until *both* streams have ended.
     def __add__(self, other):
-        if isinstance(other, Stream):
+        if isinstance(other, collections.Iterable):
             return MixStream([self, other])
         return self.map(lambda v: v + other)
 
-    __radd__ = make_stream_op(operator.add, reversed=True)
-
     def __sub__(self, other):
         return self + -other
-    
-    def __rsub__(self, other):
-        return -self + other
-
-    # `a * b` means a amplitude-modulated by b (order doesn't matter).
-    # I don't know if this has a equivalent in tape, but in electronics terms this is a mixer.
-    __mul__ = make_stream_op(operator.mul)
-    __rmul__ = make_stream_op(operator.mul, reversed=True)
-    __truediv__ = make_stream_op(operator.truediv)
-    __rtruediv__ = make_stream_op(operator.truediv, reversed=True)
-    __floordiv__ = make_stream_op(operator.floordiv)
-    __rfloordiv__ = make_stream_op(operator.floordiv, reversed=True)
-
-    # `a % b` and `a ** b` are perhaps a little exotic, but I don't see any reason to exclude them.
-    __mod__ = make_stream_op(operator.mod)
-    __rmod__ = make_stream_op(operator.mod, reversed=True)
-    __pow__ = make_stream_op(operator.pow)
-    __rpow__ = make_stream_op(operator.pow, reversed=True)
-
-    # Unary operators
-    def __neg__(self): return self.map(operator.neg)
-    def __pos__(self): return self.map(operator.pos)
-    def __abs__(self): return self.map(operator.abs)
-    def __invert__(self): return self.map(operator.invert)
-
-    # The bitwise operators are omitted so that I may repurpose them, as in the case of `>>` above.
 
     def __getitem__(self, index):
         if isinstance(index, int):
@@ -196,462 +75,251 @@ class Stream:
             for i, value in zip(range(index), self):
                 pass
             if i < index - 1:
-                raise IndexError("stream index out of range")
+                raise IndexError("Index out of range")
             return value
         elif isinstance(index, slice):
             return SliceStream(self, index.start, index.stop, index.step)
-
-    @register_stream
-    def map(self, fn):
-       return MapStream(self, fn)
     
-    @register_stream
-    def zip(self, *others):
-        return ZipStream((self,) + others)
+    __radd__ = _make_stream_op(operator.add, reversed=True)
+    __rsub__ = _make_stream_op(operator.add, reversed=True)
 
-    @raw_stream
+    # `a * b` means a amplitude-modulated by b (order doesn't matter).
+    # I don't know if this has a equivalent in tape, but in electronics terms this is a mixer.
+    __mul__ = _make_stream_op(operator.mul)
+    __rmul__ = _make_stream_op(operator.mul, reversed=True)
+    __truediv__ = _make_stream_op(operator.truediv)
+    __rtruediv__ = _make_stream_op(operator.truediv, reversed=True)
+    __floordiv__ = _make_stream_op(operator.floordiv)
+    __rfloordiv__ = _make_stream_op(operator.floordiv, reversed=True)
+
+    # `a % b` and `a ** b` are perhaps a little exotic, but I don't see any reason to exclude them.
+    __mod__ = _make_stream_op(operator.mod)
+    __rmod__ = _make_stream_op(operator.mod, reversed=True)
+    __pow__ = _make_stream_op(operator.pow)
+    __rpow__ = _make_stream_op(operator.pow, reversed=True)
+
+    # Unary operators
+    def __neg__(self): return self.map(operator.neg)
+    def __pos__(self): return self.map(operator.pos)
+    def __abs__(self): return self.map(operator.abs)
+    def __invert__(self): return self.map(operator.invert)
+
+    @stream
+    def map(self, fn):
+       for x in self:
+           yield fn(x)
+
+    @stream
+    def each(self, fn):
+        for x in self:
+            fn(x)
+            yield x
+
+    def zip(self, *others):
+        return Stream(zip(self, *others))
+
+    @stream
     def filter(self, predicate):
-        def closure():
-            stream = self
-            while True:
-                result = stream()
-                if isinstance(result, Return):
-                    return result
-                value, stream = result
-                if not predicate(value):
-                    continue
-                return (value, stream.filter(predicate))
-        return closure
+        for x in self:
+            if predicate(x):
+                yield x
     
     # Monadic bind.
     # Like concat, but the second stream is not created until it is needed, and it has access to the return value of the first stream.
     # This allows for a useful definition of 'split', for example (see the `streaming` library in Haskell).
-    @raw_stream
+    @stream
     def bind(self, fn):
-        def closure():
-            result = self()
-            if isinstance(result, Return):
-                return fn(result.value)()
-            value, stream = result
-            return (value, stream.bind(fn))
-        return closure
+        value = yield from self
+        yield from fn(value)
     
-    @raw_stream
+    @stream
     def join(self):
-        def closure():
-            result = self()
-            if isinstance(result, Return):
-                return result
-            value, stream = result
-            return (value >> stream.join())()
-        return closure
+        for stream in self:
+            yield from stream
 
     @stream
     def cycle(self):
-        cycled = ConcatStream(())
-        cycled.streams = (self, cycled)
-        return cycled
+        while True:
+            yield from self
     
     @stream
     def hold(self, duration):
-        return zoh(self, convert_time(duration))
-    
+        for x in self:
+            for _ in range(duration):
+                yield x
+
     @stream
     def reverse(self):
         # NOTE: Naturally, this requires evaluating the entire stream.
         # Calling this on an infinite stream will not result in a good time.
-        return lambda: to_stream(list(self)[::-1])()
+        return lambda: iter(list(self)[::-1])
     
-    @register_stream
-    def each(self, fn):
-        def wrapper(x):
-            fn(x)
-            return x
-        return self.map(wrapper)
+    # scan left, or accumulate
+    @stream
+    def scan(stream, f, acc):
+        for x in stream:
+            yield acc
+            acc = f(acc, x)
+        return acc
+
+    # fold left, or reduce
+    @stream
+    def fold(stream, f, acc):
+        for x in stream:
+            acc = f(acc, x)
+        return acc
+
+    def memoize(self):
+        saved = []
+        it = iter(self)
+        def helper():
+            yield from saved
+            for x in it:
+                yield x
+                saved.append(x)
+        return FunctionStream(helper)
+
+
+
+class FunctionStream(Stream):
+    def __init__(self, func):
+        self.func = func
     
-    @register_stream
-    def scan(self, fn, acc):
-        return scan(self, fn, acc)
-
-    def __str__(self):
-        return "Mystery Stream"
-
-    def inspect(self):
-        return {"name": str(self), "parameters": {}}
+    def __iter__(self):
+        return self.func()
 
 
 class ConcatStream(Stream):
     def __init__(self, streams):
-        self.streams = tuple(streams)
-
-    def __call__(self):
-        if not self.streams:
-            return Return()
-        elif len(self.streams) == 1:
-            return self.streams[0]()
-        elif isinstance(self.streams[0], ConcatStream):
-            # Flatten to minimize layers
-            return ConcatStream(self.streams[0].streams + self.streams[1:])()
-        result = self.streams[0]()
-        if isinstance(result, Return):
-            return ConcatStream(self.streams[1:])()
-        value, rest = result
-        return (value, ConcatStream((rest,) + self.streams[1:]))
-
-    def __str__(self):
-        return ' >> '.join(map(str, self.streams))
-
-    def inspect(self):
-        return {
-            "name": "concat",
-            "parameters": {},
-            "children": {
-                "streams": self.streams,
-                "direction": "left-right",
-                "separator": ">>",
-            }
-        }
-
-concat = ConcatStream # rename the class?
-
+        self.streams = []
+        for stream in streams:
+            if isinstance(stream, ConcatStream):
+                # Flatten to minimize layers.
+                self.streams += stream.streams
+            else:
+                self.streams.append(stream)
+    
+    def __iter__(self):
+        for stream in self.streams:             
+            yield from stream
 
 class MixStream(Stream):
     def __init__(self, streams):
         self.streams = []
         for stream in streams:
             if isinstance(stream, MixStream):
-                # Merge in other mix streams to keep this flat and minimize layers.
+                # Flatten to minimize layers.
                 self.streams += stream.streams
             else:
                 self.streams.append(stream)
-
-    def __call__(self):
-        if len(self.streams) == 1:
-            return self.streams[0]()
-        results = [stream() for stream in self.streams]
-        continuing = [result for result in results if not isinstance(result, Return)]
-        if not continuing:
-            return Return(results)
-        value = continuing[0][0]
-        next_streams = [continuing[0][1]]
-        for x, next_stream in continuing[1:]:
-            value += x
-            next_streams.append(next_stream)
-        return (value, MixStream(next_streams))
-
-    def __str__(self):
-        return ' + '.join(map(str, self.streams))
-
-    def inspect(self):
-        return {
-            "name": "mix",
-            "parameters": {},
-            "children": {
-                "streams": self.streams,
-                "direction": "top-down",
-                "separator": "+",
-            }
-        }
-
-mix = MixStream  # rename the class?
-
-
-class MapStream(Stream):
-    def __init__(self, stream, fn):
-        # Could consider flattening MapStreams via function composition.
-        self.stream = stream
-        self.fn = fn
-
-    def __call__(self):
-        result = self.stream()
-        if isinstance(result, Return):
-            return result
-        value, next_stream = result
-        return (self.fn(value), MapStream(next_stream, self.fn))
-
-    def __str__(self):
-        return f"{self.stream}.map({self.fn})"
-
-    def inspect(self):
-        return {
-            "name": "map",
-            "parameters": {"fn": self.fn},
-            "children": {
-                "streams": (self.stream,),
-                "direction": "top-down",
-                "separator": "",
-            }
-        }
-
-
-class ZipStream(Stream):
-    def __init__(self, streams):
-        self.streams = streams
-
-    def __call__(self):
-        results = [stream() for stream in self.streams]
-        if any(isinstance(result, Return) for result in results):
-            return Return(results)
-        values = [result[0] for result in results]
-        next_streams = [result[1] for result in results]
-        return (values, ZipStream(next_streams))
-
-    def __str__(self):
-        return f"ZipStream({', '.join(map(str, self.streams))})"
     
-    def inspect(self):
-        return {
-            "name": "zip",
-            "parameters": {},
-            "children": {
-                "streams": self.streams,
-                "direction": "top-down",
-                "separator": ",",
-            }
-        }
+    def __iter__(self):
+        # This would work if we were okay with terminating when the shortest stream finished:
+        #   for values in zip(*self.streams):
+        #       yield sum(values)
+        # Instead, we basically implement itertools.zip_longest, with the difference
+        # that we remove exhausted iterators rather than replacing them with fillers.
+        iterators = [iter(it) for it in self.streams]
+        while True:
+            acc = 0
+            for i in range(len(iterators) - 1, -1, -1):
+                try:
+                    acc += next(iterators[i])
+                except StopIteration:
+                    del iterators[i]
+            if not iterators:
+                break
+            yield acc
 
 
 class SliceStream(Stream):
     def __init__(self, stream, start, stop, step):
-        # TODO: should start (drop) be eager?
         # Step cannot be 0.
         assert(step is None or step > 0)
         self.stream = stream
-        self.start = convert_time(start) or 0
-        self.stop = convert_time(stop)
-        self.step = convert_time(step) or 1
+        self.start = start or 0
+        self.stop = stop
+        self.step = step or 1
         # Negative values are unsupported.
         assert(self.start >= 0)
         assert(self.stop is None or self.stop >= 0)
 
-    def __call__(self):
-        if self.start > 0:
-            siter = iter(self.stream)
-            # Drop values up to start.
-            for _ in zip(range(self.start), siter):
-                pass
-            if siter.returned:
-                return siter.returned
-            if self.stop is None:
-                return SliceStream(siter.rest, 0, self.stop, self.step)()
-            return SliceStream(siter.rest, 0, self.stop - self.start, self.step)()
-        elif self.stop is None and self.step == 1:
-            # Special case: no need to wrap this in a slice.
-            return self.stream()
-        elif (self.stop is None or self.stop > 0) and self.step == 1:
-            # Common case: just return the next value.
-            result = self.stream()
-            if isinstance(result, Return):
-                return result
-            value, next_stream = result
-            return (value, SliceStream(next_stream, 0, self.stop - 1 if self.stop is not None else None, 1))
-        elif self.stop is None or self.stop > 0:
-            # step != 1, so we have to skip some values.
-            # (Could also implement this by calling a new SliceStream with start set to step.)
-            siter = iter(self.stream)
-            for _, value in zip(range(self.step), siter):
-                pass
-            if siter.returned:
-                return siter.returned
-            return (value, SliceStream(siter.rest, 0, max(self.stop - self.step, 0) if self.stop is not None else None, self.step))
-        # We've reached the end of the slice.
-        return Return(self.stream)
+    def __iter__(self):
+        it = iter(self.stream)
+        for _ in zip(it, range(self.start)): pass
+        indices = count() if self.stop is None else range(self.stop - self.start)
+        for i, x in zip(indices, it):
+            if i % self.step == 0:
+                yield x
+        return stream(it)
 
-    def __str__(self):
-        return f"{self.stream}[{self.start or ''}:{self.stop if self.stop is not None else ''}:{self.step if self.step != 1 else ''}]"
-
-    def inspect(self):
-        return {
-            "name": "slice",
-            "parameters": {"start": self.start, "stop": self.stop, "step": self.step},
-            "children": {
-                "streams": (self.stream,),
-                "direction": "top-down",
-                "separator": "",
-            }
-        }
-
-
-class NamedStream(Stream):
-    def __init__(self, namer, fn, args=None, kwargs=None, inspector=None):
-        self.namer = namer
-        self.args = args
-        self.kwargs = kwargs
-        self.inspector = inspector
-        super().__init__(fn)
-
-    def __str__(self):
-        if isinstance(self.namer, str):
-            return self.namer
-        return self.namer(*self.args, **self.kwargs)
-
-    def inspect(self):
-        if self.inspector:
-            return self.inspector(*self.args, **self.kwargs)
-        else:
-            return {"name": str(self), "parameters": {}}
-
-
-# TODO: Deprecate in favor of Stream.cycle().
 @stream
-def cycle(stream):
-    cycled = ConcatStream(())
-    cycled.streams = (stream, cycled)
-    return cycled
-
-@raw_stream
-def count(start=0):
-    return lambda: (start, count(start+1))
-
-@raw_stream
-def mod(modulus, start=0):
-    # We do the mod up-front rather than in the recursive call, in case the user passed start >= modulus.
-    result = start % modulus
-    return lambda: (result, mod(modulus, result + 1))
-
-# @raw_stream
-# def const(value):
-#     def closure():
-#         return (value, closure)
-#     return closure
-
-@raw_stream
 def const(value):
-    "Yield the same value forever."
-    return lambda: (value, const(value))
+    while True:
+        yield value
+
+@stream
+def repeat(f):
+    while True:
+        yield f()
+
+count = stream(itertools.count)
+
+@stream
+def mod(modulus):
+    while True:
+        yield from range(modulus)
+
+@FunctionStream
+def empty():
+    return
+    yield  # marks this as a generator function
+
+
+# Audio stuff (TODO: separate module)
+
+# This is the default sample rate, but it may be modified by audio module to
+# match what the audio device supports.
+SAMPLE_RATE = 44100
 
 silence = const(0)
 ones = const(1)
 
-# Note: Each memoization cell retains a reference to the next one,
-# so memory usage will grow with the difference between the earliest
-# externally-held cell and the latest evaluated cell.
-@raw_stream
-def memoize(stream):
-    called = False
-    saved = None
-    def closure():
-        nonlocal called, saved
-        if not called:
-            called = True
-            result = stream()
-            if isinstance(result, Return):
-                saved = result
-            else:
-                value, next_stream = result
-                saved = (value, memoize(next_stream))
-        return saved
-    return closure
-
-# The memoization is necessary here because there's no way to replay a Python iterator from an earlier point.
-def iter_to_stream(iter):
-    def closure():
-        try:
-            v = next(iter)
-            return (v, closure)
-        except StopIteration:
-            return Return()
-    return memoize(closure)
-
-empty = Stream(lambda: Return())
-
-class ListStream(Stream):
-    "A finite stream of precomputed values."
-
-    def __init__(self, list, index=0):
-        self.list = list
-        self.index = index
-    
-    def __call__(self):
-        if self.index < len(self.list):
-            return (self.list[self.index], ListStream(self.list, self.index + 1))
-        return Return()
-    
-    def __len__(self):
-        return len(self.list) - self.index
-    
-    def __str__(self):
-        return f"ListStream([...], index={self.index})"
-    
-    def inspect(self):
-        return {
-            "name": "list",
-            "parameters": {"list": self.list, "index": self.index}
-        }
-
-class FrozenStream(ListStream):
-    "Like a ListStream, except it also yields a final return value."
-
-    def __init__(self, list, return_value=None, index=0):
-        self.list = list
-        self.return_value = return_value
-        self.index = index
-    
-    def __call__(self):
-        if self.index < len(self.list):
-            return (self.list[self.index], FrozenStream(self.list, self.return_value, self.index + 1))
-        return Return(self.return_value)
-    
-    def __str__(self):
-        return f"FrozenStream([...], return_value={self.return_value}, index={self.index})"
-    
-    def inspect(self):
-        return {
-            "name": "frozen",
-            "parameters": {"list": self.list, "return_value": self.return_value, "index": self.index}
-        }
-
-
-def list_to_stream(l):
-    import warnings
-    warnings.warn("list_to_stream is deprecated, use to_stream instead", DeprecationWarning)
-    return ListStream(l)
-
-def to_stream(x):
-    if isinstance(x, Stream):
-        return x
-    if isinstance(x, np.ndarray):
-        if len(x.shape) == 1:
-            return ListStream(array.array('d', x))
-        return ListStream(x.tolist())
-    return ListStream(x)
-
-# @stream
-# def osc(freq):
-#     return count().map(lambda t: math.sin(2*math.pi*t*freq/SAMPLE_RATE))
-
-# Sometimes it's useful to specify the starting phase:
-@raw_stream
+@stream
 def osc(freq, phase=0):
-    return lambda: (math.sin(phase), osc(freq, phase + 2*math.pi*freq/SAMPLE_RATE))
+    while True:
+        yield math.sin(phase)
+        phase += 2*math.pi*freq/SAMPLE_RATE
 
 # NOTE: Aliased. For versions that don't alias, see aa_{saw,sqr,tri}.
 @stream
-def saw(freq):
-    return count().map(lambda t: (t * freq/SAMPLE_RATE % 1) * 2 - 1)
+def saw(freq, t=0):
+    while True:
+        yield t*2 - 1
+        t = (t + freq/SAMPLE_RATE) % 1
 
 @stream
-def sqr(freq):
-    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < 0.5) * 2 - 1)
+def sqr(freq, t=0):
+    while True:
+        yield int(t < 0.5)*2 - 1
+        t = (t + freq/SAMPLE_RATE) % 1
 
 @stream
-def tri(freq):
-    def helper(t):
-        pos = t * freq/SAMPLE_RATE % 1
-        if pos > 0.5:
-            pos = 1 - pos
-        return pos * 2 - 1
-    return count().map(helper)
+def tri(freq, t=0):
+    while True:
+        yield abs(t - 0.5)*2 - 1
+        t = (t + freq/SAMPLE_RATE) % 1
 
 def basic_envelope(length):
     length = convert_time(length)
     ramp_time = int(length * 0.1)
-    ramp = np.linspace(0, 1, ramp_time)
-    envelope = np.concatenate((ramp, np.ones(length - ramp_time*2), ramp[::-1]))
-    return to_stream(envelope)
+    for x in range(0, ramp_time):
+        yield x/ramp_time
+    for _ in range(length - ramp_time*2):
+        yield 1
+    for x in range(ramp_time-1, -1, -1):
+        yield x/ramp_time
 
-
-## Utilities that have more to do with audio than streams.
 def convert_time(time):
     if isinstance(time, float):
         return int(time * SAMPLE_RATE)
@@ -660,193 +328,119 @@ def convert_time(time):
 def m2f(midi):
     return 2**((midi - 69)/12) * 440
 
-
-
-
 ## TODO: EXPERIMENTAL - needs documentation & integration
 
-# TODO: define this in terms of a fold.
-# TODO: expose the freq_stream for inspection.
-#   This will probably require making this a class and rethinking how graph generation works.
-@raw_stream
+@stream
 def fm_osc(freq_stream, phase=0):
-    def closure():
-        result = freq_stream()
-        if isinstance(result, Return):
-            return result
-        freq, next_stream = result
-        return (math.sin(phase), fm_osc(next_stream, phase + 2*math.pi*freq/SAMPLE_RATE))
-    return closure
+    for freq in freq_stream:
+        yield math.sin(phase)
+        phase += 2*math.pi*freq/SAMPLE_RATE
 
-@raw_stream
+@stream
 def glide(freq_stream, hold_time, transition_time, start_freq=0):
-    def closure():
-        result = freq_stream()
-        if isinstance(result, Return):
-            return result
-        freq, next_stream = result
+    tt = convert_time(transition_time)
+    for freq in freq_stream:
         tt = convert_time(transition_time)
         transition = (count()[:tt] / tt) * (freq - start_freq) + start_freq
         hold = const(freq)[:hold_time]
-        return (transition >> hold >> glide(next_stream, hold_time, transition_time, start_freq=freq))()
-    return closure
-
-
-@raw_stream
-def lazy_concat(stream_of_streams):
-    def closure():
-        result = stream_of_streams()
-        if isinstance(result, Return):
-            return result
-        value, next_stream = result
-        return (value >> lazy_concat(next_stream))()
-    return closure
-
-# def sqr_inst(pitch, duration):
-#     return sqr(m2f(pitch)) * basic_envelope(60.0 / bpm * duration * 4)
+        yield from transition >> hold
+        start_freq = freq
 
 def basic_sequencer(note_stream, bpm=80):
     # Assumes quarters have the beat.
-    return lazy_concat(note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)))
-
+    return note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)).join()
 
 @stream
 def adsr(attack, decay, sustain_time, sustain_level, release):
     attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
-    return to_stream(np.concatenate((np.linspace(0, 1, attack, endpoint=False),
-                                     np.linspace(1, sustain_level, decay, endpoint=False),
-                                     np.ones(sustain_time) * sustain_level,
-                                     np.linspace(0, sustain_level, release, endpoint=False)[::-1])))
-
+    yield from (count() / attack())[:attack]  # Attack
+    yield from (count()/decay * (1 - sustain_level) + sustain_level)[:decay]/decay  # Decay
+    yield from (ones * sustain_level)[:sustain_time]  # Sustain
+    yield from ((1 - count(1)/release) * sustain_level)[:release]  # Release
 
 # This function produces a stream of exactly length, by trimming or padding as needed.
 # Hypothetically, might also want a function that strictly pads (like str.ljust()).
-# Could return another object with length metadata, or make this a method and override it for some kinds of streams.
+# TODO: Add in length metadata?
 def fit(stream, length):
     return (stream >> silence)[:length]
 
-
-# # foldr, not foldl.
-# @stream("fold")
-# def fold(stream, f, acc):
-#     def closure():
-#         result = stream()
-#         if isinstance(result, Return):
-#             return acc
-#         x, next_stream = result
-#         return f(x, fold(next_stream, f, acc))
-#     return closure
-
-# scanl, not scanr
-@raw_stream
-def scan(stream, f, acc):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return acc
-        x, next_stream = result
-        next_acc = f(x, acc)
-        return (acc, scan(next_stream, f, next_acc))
-    return closure
-
 @stream
-def pulse(freq, duty):
-    return count().map(lambda t: int((t * freq/SAMPLE_RATE % 1) < duty) * 2 - 1)
+def pulse(freq, duty, t=0):
+    while True:
+        yield int(t < duty)*2 - 1
+        t = (t + freq/SAMPLE_RATE) % 1
 
+# TODO: conslidate? maybe introduce some constant-to-iterable helper function?
 @stream
-def fm_pulse(freq_stream, duty):
-    return scan(freq_stream, lambda x, y: x+y, 0).map(lambda phase: int(((phase/SAMPLE_RATE) % 1) < duty) * 2 - 1)
+def fm_pulse(freqs, duty, t=0):
+    for freq in freqs:
+        yield int(t < duty)*2 - 1
+        t = (t + freq/SAMPLE_RATE) % 1
 
-# NOTE: Aliased.
-@stream
-def tri(freq):
-    return count().map(lambda t: abs((t * freq/SAMPLE_RATE % 1) - 0.5) * 4 - 1)
+rand = repeat(random.random)
 
-
-rand = NamedStream("rand", lambda: (random.random(), rand))
-
-
-class Wavetable(Stream):
-    def __init__(self, list, rate, index=0):
-        self.list = list
-        self.rate = rate
-        self.index = index % len(list)
-    
-    def __call__(self):
-        index = int(self.index)
-        frac = self.index - index
-        start = self.list[index]
-        end = self.list[(index + 1) % len(self.list)]
-        interp = start + (end - start) * frac
-        return (interp, Wavetable(self.list, self.rate, self.index + self.rate))
+def resample_list(list, rate, index=0):
+    index = index % len(list)
+    while True:
+        integer = int(index)
+        fraction = index - integer
+        start = list[integer]
+        end = list[(integer + 1) % len(list)]
+        interp = start + (end - start) * fraction
+        yield interp
+        index += rate
 
 
 # Stream-controlled resampler. Think varispeed.
-# TODO: Debug. Compared with Wavetable, which interpolates the same way, the results here are slightly off.
-@raw_stream
-def resample(stream, advance_stream, pos=0, sample=None, next_sample=0):
-    def closure():
-        nonlocal stream, pos, sample, next_sample
-        result = advance_stream()
-        if isinstance(result, Return):
-            return result
-        advance, next_advance_stream = result
+@stream
+def resample(stream, advance_stream):
+    it = iter(stream)
+    pos = 0
+    sample = 0
+    next_sample = next(it)
+    for advance in advance_stream:
         pos += advance
-        while pos >= 0:
-            result = stream()
-            if isinstance(result, Return):
-                return result
+        while pos > 1:
             sample = next_sample
-            next_sample, stream = result
+            next_sample = next(it)
             pos -= 1
-        interpolated = (next_sample - sample) * (pos + 1) + sample
-        return (interpolated, resample(stream, next_advance_stream, pos, sample, next_sample))
-    return closure
+        yield sample + (next_sample - sample) * pos
 
-
-@raw_stream
-def interp(stream, time=0, prev_time=None, prev_value=None, next_time=0, next_value=0):
-    # TODO: adopt a consistent policy re. this kind of convenience conversion
-    if not isinstance(stream, Stream):
-        stream = to_stream(stream)
-    # TODO: rewrite this more simply (and probably more efficiently); see glide(), example.
-    def closure():
-        nonlocal stream, time, prev_time, prev_value, next_time, next_value
+# Linearly interpolate a series of points of the form [(time, value), (time, value)] into a "filled in" sequence of values.
+@stream
+def interp(stream):
+    it = iter(stream)
+    time = 0
+    next_time = next_value = 0
+    while True:
         time += 1
         while time >= next_time:
-            result = stream()
-            if isinstance(result, Return):
-                return result
             prev_time, prev_value = next_time, next_value
-            (next_time, next_value), stream = result
+            next_time, next_value = next(it)
             next_time = convert_time(next_time)
-        interpolated = (next_value - prev_value) * (time - prev_time)/(next_time-prev_time) + prev_value
-        return (interpolated, interp(stream, time, prev_time, prev_value, next_time, next_value))
-    return closure
-
+        yield prev_value + (next_value - prev_value) * (time - prev_time)/(next_time - prev_time)
 
 def freeze(stream):
-    print('Rendering...')
+    print("Rendering...")
     t = time.time()
     r = list(stream)
-    print('Done in', time.time() - t)
-    return NamedStream(f"freeze({str(stream)})", to_stream(r))
-
+    print("Done in", time.time() - t)
+    return stream(r)
 
 # Essentially a partial freeze of length 1.
 # Useful for determining the number of channels automatically.
 def peek(stream, default=None):
-    result = stream()
-    if isinstance(result, Return):
-        return (default, Stream(lambda: result))
-    x, rest = result
-    # "Unpeek". Overhead disappears after first sample.
-    return (x, to_stream([x]) >> rest)
+    it = iter(stream)
+    try:
+        x = next(it)
+    except StopIteration:
+        return (default, empty)
+    # "Unpeek".
+    return (x, stream([x]) >> it)
 
-@raw_stream
 def branch(choices, default=empty):
     # choices is list [(weight, stream)]
-    def closure():
+    def helper():
         x = random.random()
         acc = 0
         for weight, stream in choices:
@@ -854,13 +448,11 @@ def branch(choices, default=empty):
             if acc >= x:
                 return stream()
         return default()
-    return closure
+    return FunctionStream(helper)
 
-@stream
 def flip(a, b):
     return branch([(0.5, a), (0.5, b)])
 
-@stream
 def pan(stream, pos):
     return stream.map(lambda x: (x * (1 - pos), x * pos))
 
@@ -872,10 +464,9 @@ def normalize(stream):
     a = np.array(list(stream))
     print('Done in', time.time() - t)
     peak = np.max(np.abs(a))
-    return to_stream(a / peak)
+    return stream(a / peak)
 
 # Analagous to DAW timeline; takes a bunch of streams and their start times, and arranges them in a reasonably efficient way.
-@stream
 def arrange(items):
     if not items:
         return empty
@@ -890,12 +481,12 @@ def arrange(items):
     return silence[:last_start_time][:prev_start_time].bind(out)
 
 # More new stuff (3/2):
-@raw_stream
 def cons(item, stream):
-    return lambda: (item, stream)
+    return [item] >> stream
 
-def just(item):  # rename so `just` can just return a value?
-    return cons(item, empty)
+@stream
+def just(item):
+    yield item
 
 @stream
 def events_in_time(timed_events, filler=None):
@@ -1118,10 +709,96 @@ def splitter(stream, receiver):
 # NOTE: `return receiver(lambda: memoize(stream)())` would instead memoize separately for each invocation in the receiver - defeating the purpose of the splitter.
 # also, should rename this 'tee'.
 
-@stream
-def repeat(f):
-    @Stream
-    def closure():
-        return (f(), closure)
-    return closure
 
+
+
+
+
+
+## OLD:
+
+# import array
+# import inspect
+# import math
+# import time
+# import operator
+# import random
+# import os
+# import pickle
+
+# import numpy as np
+
+# # Preliminary magic for introspection.
+# # This stuff is used by the assistant to list all streams, stream-creating functions, and instruments.
+
+# # Registry of stream-creating functions.
+# # There is no registry for streams themselves, because they can be identified by type (`isinstance(x, Stream)`).
+# stream_registry = {}
+
+# def make_namer(fn):
+#     def closure(*args, **kwargs):
+#         args = inspect.signature(fn).bind(*args, **kwargs).arguments
+#         return f"{fn.__name__}({', '.join(f'{name}={value}' for name, value in args.items())})"
+#     return closure
+
+# # If `json` is a string, indicate a single parameter that should be sent to the assistant.
+# # If `json` is any other iterable, indicate multiple parameters instead (sent in an object).
+# def make_inspector(fn, json=None):
+#     def closure(*args, **kwargs):
+#         ba = inspect.signature(fn).bind(*args, **kwargs)
+#         ba.apply_defaults()
+#         d = {
+#             "name": fn.__name__,
+#             "parameters": ba.arguments,
+#         }
+#         if json is not None:
+#             if isinstance(json, str):
+#                 d["json"] = ba.arguments[json]
+#             else:
+#                 d["json"] = {param: ba.arguments[param] for param in json}
+#         return d
+#     return closure
+
+# def register_stream(f, **kwargs):
+#     if f.__module__ not in stream_registry:
+#         stream_registry[f.__module__] = {}
+#     f.metadata = kwargs
+#     stream_registry[f.__module__][f.__qualname__] = f
+#     return f
+
+# # This wraps primitive streams (functions) and gives them namers/inspectors.
+# # Namers/inspectors use Python's introspection features by default, but can be overriden for custom displays.
+# # Assumes the decorated function is lazily recursive.
+# # TODO: merge with @stream?
+# def raw_stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
+#     def wrapper(f):
+#         nonlocal namer, inspector
+#         namer = namer or make_namer(f)
+#         inspector = inspector or make_inspector(f, json=json)
+#         if register:
+#             register_stream(f, **kwargs)
+#         return lambda *args, **kwargs: NamedStream(namer, f(*args, **kwargs), args, kwargs, inspector)
+#     if f:
+#         return wrapper(f)
+#     return wrapper
+
+# # This is for naming streams that already return other streams (rather than beng lazily recursive).
+# # NOTE: The NamedStream outer layer is only present at the start. Wrapping the entire stream creates excessive overhead.
+# def stream(f=None, namer=None, inspector=None, register=True, json=None, **kwargs):
+#     def wrapper(f):
+#         nonlocal namer, inspector
+#         namer = namer or make_namer(f)
+#         inspector = inspector or make_inspector(f, json=json)
+#         if register:
+#             register_stream(f, **kwargs)
+#         def inner(*args, **kwargs):
+#             init_stream = f(*args, **kwargs)
+#             def _inspector(*args, **kwargs):
+#                 d = inspector(*args, **kwargs)
+#                 d['implementation'] = init_stream
+#                 return d
+#             return NamedStream(namer, init_stream, args, kwargs, _inspector)
+#         return inner
+#     if f:
+#         return wrapper(f)
+#     return wrapper

@@ -63,13 +63,13 @@ def setup(device=None, channels=1, input=False, **kwargs):
         _stream = sd.Stream(channels=channels, callback=play_record_callback, **kwargs)
     else:
         _stream = sd.OutputStream(channels=channels, callback=play_callback, **kwargs)
-    core.SAMPLE_RATE = _stream.samplerate
+    SAMPLE_RATE = _stream.samplerate
     _stream.start()
     _channels = channels
 
 def play_callback(outdata, frames, time, status):
     global _samples
-    if _samples is None or _samples.returned:
+    if _samples is None:
         outdata[:frames] = 0
         return
     try:
@@ -78,38 +78,42 @@ def play_callback(outdata, frames, time, status):
         # TODO: Make sure it actually works like that!
         for i, sample in zip(range(frames), _samples):
             outdata[i] = sample
-        outdata *= _volume
-        if _samples.returned:
-            outdata[i+1:frames] = 0
-            # Note: we avoid stopping the PortAudio stream,
-            # because making a new stream later will break connections in Jack.
     except Exception as e:
-        _samples.returned = e
+        _samples = None
         traceback.print_exc()
+    if i < frames - 1:
+        # Note: we avoid stopping the PortAudio stream,
+        # because making a new stream later will break connections in Jack.
+        outdata[i+1:frames] = 0
+        _samples = None
+    outdata *= _volume
 
 _input_sample = 0
-input_stream = core.Stream(lambda: (_input_sample, input_stream))
+@core.FunctionStream
+def input_stream():
+    while True:
+        yield _input_sample
 
 def play_record_callback(indata, outdata, frames, time, status):
     global _samples, _input_sample
-    if _samples is None or _samples.returned:
+    if _samples is None:
         outdata[:frames] = 0
         return
     try:
         i = -1
         indata = indata[:frames, 0].tolist()
-        # NOTE: This assumes _input_sample gets bound BEFORE we pull the next sample from _samples.
-        # TODO: Make sure it actually works like that!
+        # NOTE: _input_sample gets bound BEFORE we pull the next sample from _samples.
         for i, _input_sample, sample in zip(range(frames), indata, _samples):
             outdata[i] = sample
-        outdata *= _volume
-        if _samples.returned:
-            outdata[i+1:frames] = 0
-            # Note: we avoid stopping the PortAudio stream,
-            # because making a new stream later will break connections in Jack.
     except Exception as e:
-        _samples.returned = e
+        _samples = None
         traceback.print_exc()
+    if i < frames - 1:
+        # Note: we avoid stopping the PortAudio stream,
+        # because making a new stream later will break connections in Jack.
+        outdata[i+1:frames] = 0
+        _samples = None
+    outdata *= _volume
 
 
 # play() -> stops playing
@@ -120,24 +124,26 @@ def play_record_callback(indata, outdata, frames, time, status):
 def play(*streams, mix=False):
     global _samples
 
-    if mix:
-        # Add another layer to playback without resetting the position of existing layers.
-        if len(streams) == 1:
-            play(_samples.rest + streams[0])
-        elif len(streams) > 1:
-            play(_samples.rest + core.ZipStream(streams).map(core.frame))
-        return
+    # if mix:
+    #     # Add another layer to playback without resetting the position of existing layers.
+    #     if len(streams) == 1:
+    #         play(_samples.rest + streams[0])
+    #     elif len(streams) > 1:
+    #         play(_samples.rest + core.ZipStream(streams).map(core.frame))
+    #     return
 
     if not streams:
         stream = core.empty
         channels = _channels
     elif len(streams) == 1:
         # Peek ahead to determine the number of channels automatically.
-        sample, stream = core.peek(streams[0])
-        channels = getattr(sample, '__len__', lambda: 1)()
+        # sample, stream = core.peek(streams[0])
+        # channels = getattr(sample, '__len__', lambda: 1)()
+        stream = streams[0]
+        channels = 1
     else:
         # Passed multiple tracks; zip them together as channels.
-        stream = core.ZipStream(streams)
+        stream = core.Stream.zip(*streams)
         channels = len(streams)
 
     if not _stream:
