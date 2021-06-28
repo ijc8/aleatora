@@ -2,7 +2,7 @@ import traceback
 
 import sounddevice as sd
 
-from . import streams
+from .streams import audio, empty, frame, FunctionStream, Stream, peek
 
 
 # Non-interactive version; blocking, cleans up and returns when the composition is finished.
@@ -16,8 +16,7 @@ def run(composition, blocksize=0):
             raise sd.CallbackStop
 
     with sd.OutputStream(channels=1, callback=callback, blocksize=blocksize) as stream:
-        # TODO: Does this actually update streams.audio.SAMPLE_RATE?
-        streams.SAMPLE_RATE = stream.samplerate
+        audio.SAMPLE_RATE = stream.samplerate
         try:
             while stream.active:
                 sd.sleep(100)
@@ -90,7 +89,7 @@ def play_callback(outdata, frames, time, status):
     outdata *= _volume
 
 _input_sample = 0
-@streams.FunctionStream
+@FunctionStream
 def input_stream():
     while True:
         yield _input_sample
@@ -125,27 +124,25 @@ def play_record_callback(indata, outdata, frames, time, status):
 def play(*streams, mix=False):
     global _samples
 
-    # if mix:
-    #     # Add another layer to playback without resetting the position of existing layers.
-    #     if len(streams) == 1:
-    #         play(_samples.rest + streams[0])
-    #     elif len(streams) > 1:
-    #         play(_samples.rest + core.ZipStream(streams).map(core.frame))
-    #     return
-
     if not streams:
-        stream = streams.empty
+        stream = empty
         channels = _channels
     elif len(streams) == 1:
         # Peek ahead to determine the number of channels automatically.
-        # sample, stream = core.peek(streams[0])
-        # channels = getattr(sample, '__len__', lambda: 1)()
+        sample, stream = peek(streams[0])
+        channels = getattr(sample, "__len__", lambda: 1)()
         stream = streams[0]
         channels = 1
     else:
         # Passed multiple tracks; zip them together as channels.
-        stream = streams.Stream.zip(*streams)
+        stream = Stream.zip(*streams)
         channels = len(streams)
+    
+    if mix and _samples is not None:
+        # Add another layer to playback without resetting the position of existing layers.
+        # NOTE: We add _samples _after_ the peek(), to avoid "generator already executing" errors due to the audio thread.
+        channels = max(channels, _channels)
+        stream += _samples
 
     if not _stream:
         setup(channels=channels)

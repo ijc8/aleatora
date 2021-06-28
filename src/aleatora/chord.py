@@ -88,11 +88,11 @@ class chord:
     # Unlike the lower-level synthesis streams, these streams do not yield samples.
     # Instead, they yield notes - tuples of (pitch, duration in beats).
     def arp(self, dur=1/8):
-        return alt.to_stream(self.notes).cycle().map(lambda p: (p, dur))
+        return alt.stream(self.notes).cycle().map(lambda p: (p, dur))
 
     def alberti(self, dur=1/8):
         sequence = []
         for lower in self.notes[:-1]:
             sequence.append(lower)
             sequence.append(self.notes[-1])
-        return alt.to_stream(sequence).cycle().map(lambda p: (p, dur))
+        return alt.stream(sequence).cycle().map(lambda p: (p, dur))

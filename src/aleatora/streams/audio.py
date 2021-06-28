@@ -246,18 +246,18 @@ def interp(stream):
             next_time = convert_time(next_time)
         yield prev_value + (next_value - prev_value) * (time - prev_time)/(next_time - prev_time)
 
-def freeze(stream, verbose=False):
+def freeze(strm, verbose=False):
     if verbose:
         t = time.time()
-    r = list(stream)
+    r = list(strm)
     if verbose:
         print("Done in", time.time() - t)
     return stream(r)
 
 # Essentially a partial freeze of length 1.
 # Useful for determining the number of channels automatically.
-def peek(stream, default=None):
-    it = iter(stream)
+def peek(strm, default=None):
+    it = iter(strm)
     try:
         x = next(it)
     except StopIteration:
@@ -270,22 +270,22 @@ def branch(choices, default=empty):
     def helper():
         x = random.random()
         acc = 0
-        for weight, stream in choices:
+        for weight, strm in choices:
             acc += weight
             if acc >= x:
-                return stream()
-        return default()
+                return iter(strm)
+        return iter(default)
     return FunctionStream(helper)
 
 def flip(a, b):
     return branch([(0.5, a), (0.5, b)])
 
-def normalize(stream):
+def normalize(strm):
     # Requires evaluating the whole stream to determine the max volume.
     # Works for any number of channels.
     print('Rendering...')
     t = time.time()
-    a = np.array(list(stream))
+    a = np.array(list(strm))
     print('Done in', time.time() - t)
     peak = np.max(np.abs(a))
     return stream(a / peak)
