@@ -14,7 +14,7 @@ from .chord import chord
 # from .filters import *
 # from . import midi
 # from . import net
-# from .profile import profile
-# from .speech import speech, sing
+from .profile import profile
+from .speech import speech, sing
 from .streams import *
 from . import wav

@@ -23,7 +23,7 @@ def load(filename, resample=False, multichannel=False):
         else:
             raise NotImplementedError(f"{width*8}-bit wave files not supported")
         if resample and streams.SAMPLE_RATE != w.getframerate():
-            return signal.resample(data, int(streams.SAMPLE_RATE / w.getframerate() * len(data)))
+            data = signal.resample(data, int(streams.SAMPLE_RATE / w.getframerate() * len(data)))
         if not multichannel:
             return streams.stream(data.mean(axis=1))
         return streams.stream(data)

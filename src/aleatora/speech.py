@@ -6,12 +6,11 @@ import tempfile
 import numpy as np
 from scipy import signal
 
-from .core import *
+from .streams import SAMPLE_RATE, stream
 from . import wav
 
 ## Google TTS
 
-@stream(json='text')
 def speech(text, lang='en', slow=False, tld='com', filename=None):
     """If filename is provided, load precomputed speech from that if it exists; otherwise save to it.
     (This is better than freezing because the audio is compressed, as provided by the server.)
@@ -43,7 +42,7 @@ def speech(text, lang='en', slow=False, tld='com', filename=None):
     decoder = MP3Decoder(mp3)
     assert(decoder.num_channels == 1)
     data = np.concatenate([np.frombuffer(chunk, dtype=np.int16).copy() for chunk in decoder]).astype(np.float) / np.iinfo(np.int16).max
-    return to_stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
+    return stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
 
 
 ## Festival singing mode
@@ -106,7 +105,8 @@ def sing(*args, divide_duration=True, voice="us1_mbrola"):
                     wf.name, "-o", rf.name])
             except FileNotFoundError:
                 raise FileNotFoundError("Failed to run 'text2wave'; install festival (http://www.festvox.org/festival).")
-            return to_stream(wav.load(rf, resample=True))
+            return wav.load(rf, resample=True)
+
 
 if __name__ == '__main__':
     from . import audio
