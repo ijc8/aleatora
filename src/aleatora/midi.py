@@ -17,9 +17,10 @@ An _instrument_ is any function that takes an event stream and returns a sample 
 Example usage:
 play(midi.poly_instrument(midi.input_stream()))
 """
+import math
 import mido
 
-from .core import *
+from .streams import const, events_in_time, m2f, repeat, SAMPLE_RATE, stream
 
 get_input_names = mido.get_input_names
 
@@ -34,7 +35,6 @@ class Message:
     def __repr__(self):
         return f"Message({self.type}, {self.note}, {self.velocity})"
 
-@stream
 def input_stream(port=None):
     if port is None:
         port = get_input_names()[-1]
@@ -43,23 +43,22 @@ def input_stream(port=None):
     return repeat(lambda: tuple(port.iter_pending()))
 
 # TODO: test this
+@stream
 def file_stream(filename, include_meta=False):
-    def collect_messages():
-        simultaneous = []
-        timestamp = 0
-        for message in mido.MidiFile(filename):
-            delta = message.time/SAMPLE_RATE
-            if delta == 0:
-                if not message.is_meta or include_meta:
-                    simultaneous.append(message)
-            else:
-                timestamp += delta
-                yield const(())[:int(timestamp)]
-                timestamp -= int(timestamp)
-                if not message.is_meta or include_meta:
-                    yield cons(tuple(simultaneous), empty)
-                simultaneous = []
-    return iter_to_stream(collect_messages()).join()
+    simultaneous = []
+    timestamp = 0
+    for message in mido.MidiFile(filename):
+        delta = message.time/SAMPLE_RATE
+        if delta == 0:
+            if not message.is_meta or include_meta:
+                simultaneous.append(message)
+        else:
+            timestamp += delta
+            yield from const(())[:int(timestamp)]
+            timestamp -= int(timestamp)
+            if not message.is_meta or include_meta:
+                yield tuple(simultaneous)
+            simultaneous = []
 
 # TODO: test this
 def render(stream, filename, rate=None, bpm=120):
@@ -85,32 +84,25 @@ def render(stream, filename, rate=None, bpm=120):
 # (as in converting a monophonic instrument to polyphonic).
 
 # Simple sine instrument. Acknowledges velocity, retriggers.
-@raw_stream(instrument=True)
+@stream
 def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            return result
-        events, next_stream = result
+    for events in stream:
         if not events:
-            next_freq = freq
-            next_velocity = velocity
+            pass
         elif events[-1].type == 'note_on':
-            next_freq = m2f(events[-1].note)
-            next_velocity = events[-1].velocity
+            freq = m2f(events[-1].note)
+            velocity = events[-1].velocity
         elif events[-1].type == 'note_off':
-            next_freq = freq
-            next_velocity = 0
-        target_amp = next_velocity / 127
+            velocity = 0
+        target_amp = velocity / 127
         if amp > target_amp:
-            next_amp = max(target_amp, amp - 1e-4)
+            amp = max(target_amp, amp - 1e-4)
         else:
-            next_amp = min(target_amp, amp + 1e-6 * next_velocity**2)
-        next_phase = phase + 2*math.pi*next_freq/SAMPLE_RATE
-        if not persist and next_amp == 0 and next_velocity == 0:
-            return Return()
-        return (next_amp * math.sin(next_phase), mono_instrument(next_stream, next_freq, next_phase, next_amp, next_velocity, persist))
-    return closure
+            amp = min(target_amp, amp + 1e-6 * velocity**2)
+        phase += 2*math.pi*freq/SAMPLE_RATE
+        if not persist and amp == 0 and velocity == 0:
+            return
+        yield amp * math.sin(phase)
 
 
 # Convert a monophonic instrument into a polyphonic instrument.
@@ -118,64 +110,50 @@ def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
 def poly(monophonic_instrument, persist_internal=False):
     # Provides a 'substream' of messages for a single voice in a polyphonic instrument.
     def make_event_substream():
-        substream = lambda: (substream.events, substream)
+        substream = repeat(lambda: substream.events)
         substream.events = ()
         return substream
 
-    @raw_stream(register=False)
-    def polyphonic_instrument(stream, substreams={}, voices=[], persist=True, **kwargs):
-        def closure():
-            result = stream()
-            if isinstance(result, Return):
-                return result
-            events, next_stream = result
-            next_substreams = substreams
-            next_voices = []
+    @stream
+    def polyphonic_instrument(stream, substreams={}, voices={}, persist=True, **kwargs):
+        for events in stream:
             acc = 0
             # Clear old messages:
             for substream in substreams.values():
                 substream.events = ()
             for event in events:
                 if event.type == 'note_on':
-                    if event.note in next_substreams:
+                    if event.note in substreams:
                         # Retrigger existing voice
-                        next_substreams[event.note].events = (event,)
+                        substreams[event.note].events = (event,)
                     else:
                         # New voice
-                        if next_substreams is substreams:
-                            next_substreams = substreams.copy()
                         substream = make_event_substream()
                         substream.events = (event,)
-                        next_substreams[event.note] = substream
-                        new_voice = monophonic_instrument(substream, persist=persist_internal, **kwargs)
-                        # TODO: avoid duplication here?
-                        result = new_voice()
-                        if not isinstance(result, Return):
-                            sample, new_voice = result
-                            acc += sample
-                            next_voices.append(new_voice)
+                        substreams[event.note] = substream
+                        voices[event.note] = iter(monophonic_instrument(substream, persist=persist_internal, **kwargs))
                 elif event.type == 'note_off':
-                    if event.note in next_substreams:
-                        next_substreams[event.note].events = (event,)
+                    if event.note in substreams:
+                        substreams[event.note].events = (event,)
                         if not persist_internal:
-                            if next_substreams is substreams:
-                                next_substreams = substreams.copy()
-                            del next_substreams[event.note]
+                            del substreams[event.note]
 
-            if not persist and not next_voices:
-                return Return()
-
-            for voice in voices:
-                result = voice()
-                if not isinstance(result, Return):
-                    sample, next_voice = result
+            if not persist and not voices:
+                return
+            dead_list = []
+            for note, voice in voices.items():
+                try:
+                    sample = next(voice)
                     acc += sample
-                    next_voices.append(next_voice)
-            return (acc, polyphonic_instrument(next_stream, next_substreams, next_voices, persist, **kwargs))
-        return closure
+                except StopIteration:
+                    dead_list.append(note)
+            for note in dead_list:
+                del voices[note]
+                if note in substreams:
+                    del substreams[note]
+            yield acc
     return polyphonic_instrument
 
-@stream(instrument=True)
 def poly_instrument(event_stream):
     return poly(mono_instrument)(event_stream)
 

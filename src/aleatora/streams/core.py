@@ -218,8 +218,13 @@ class MixStream(Stream):
         # that we remove exhausted iterators rather than replacing them with fillers.
         iterators = [iter(it) for it in self.streams]
         while True:
-            acc = 0
-            for i in range(len(iterators) - 1, -1, -1):
+            while True:
+                try:
+                    acc = next(iterators[-1])
+                    break
+                except StopIteration:
+                    del iterators[-1]
+            for i in range(len(iterators) - 2, -1, -1):
                 try:
                     acc += next(iterators[i])
                 except StopIteration:
@@ -227,7 +232,6 @@ class MixStream(Stream):
             if not iterators:
                 break
             yield acc
-
 
 class SliceStream(Stream):
     def __init__(self, stream, start, stop, step):
@@ -243,7 +247,7 @@ class SliceStream(Stream):
 
     def __iter__(self):
         it = iter(self.stream)
-        for _ in zip(it, range(self.start)): pass
+        for _ in zip(range(self.start), it): pass
         indices = count() if self.stop is None else range(self.stop - self.start)
         for i, x in zip(indices, it):
             if i % self.step == 0:
