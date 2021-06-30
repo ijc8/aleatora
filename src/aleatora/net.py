@@ -1,10 +1,10 @@
 import threading
 import socket
 
-from .core import *
+from .streams import stream
 
 # A blocking stream is one which always yields a meaningful sample,
-# but may block for a while getting it. For example, a network stream.
+# but may block for a while getting it: for example, a network stream.
 # A nonblocking stream, instead of blocking until it can yield the sample,
 # immediately yields a value indicating "not ready yet" (such as None).
 
@@ -15,8 +15,8 @@ from .core import *
 # by running it in another thread.
 # We can convert a nonblocking stream into a blocking one via Stream.filter().
 
-@raw_stream
-def unblock(blocking_stream, filler=None, hold=False):
+@stream
+def unblock(stream, filler=None, hold=False):
     """Convert a blocking stream into a non-blocking stream by running thunks in a separate thread.
     
     This creates one thread per thunk, and it does not start computing a thunk until the next value is requested.
@@ -24,57 +24,48 @@ def unblock(blocking_stream, filler=None, hold=False):
     While the next value is being computed, this will yield filler values in the meantime.
     These can either be a specific value (None by default), or the last computed value if hold is True.
     """
-    ret = None
-    thread = None
+    it = iter(stream)
+    value = None
+    done = object()
     def wrapper():
-        nonlocal ret
-        ret = blocking_stream()
-    @Stream
-    def closure():
-        nonlocal thread
-        if thread.is_alive():
-            return (filler, closure)
-        if isinstance(ret, Return):
-            return ret
-        value, next_stream = ret
-        return (value, unblock(next_stream, value if hold else filler, hold))
-    # NOTE: We wait until the first sample is requested to start the thread.
-    def init():
-        nonlocal thread
-        if not thread:
-            thread = threading.Thread(target=wrapper)
-            thread.start()
-        return closure()
-    return init
+        nonlocal value
+        try:
+            value = next(it)
+        except StopIteration:
+            value = done
 
-
-# TODO: Should these create the socket (and closure) in init, for better garbage collection?
+    while True:
+        thread = threading.Thread(target=wrapper)
+        thread.start()
+        while thread.is_alive():
+            yield filler
+        if value is done:
+            return
+        yield value
+        if hold:
+            filler = value
 
 # This acts as a TCP client
 # TODO: Test with netcat
-@raw_stream
+@stream
 def byte_stream(address, port, chunk_size=1):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    def init():
-        s.connect((address, port))
-        return closure()
-    def closure():
-        return (s.recv(chunk_size), closure)
-    return init
+    s.connect((address, port))
+    while True:
+        data = s.recv(chunk_size)
+        if not data:
+            return
+        yield data
 
 # This acts as a UDP server
 # Yields a stream of (datagram bytes, address of sender)
-@raw_stream
+@stream
 def packet_stream(address, port, max_packet_size=65536):
-    s = None
-    def init():
-        nonlocal s
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.bind((address, port))
-        return closure()
-    def closure():
-        return (s.recvfrom(max_packet_size), closure)
-    return init
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind((address, port))
+    while True:
+        yield s.recvfrom(max_packet_size)
+
 
 import oscpy
 import oscpy.parser
@@ -82,14 +73,14 @@ from collections import namedtuple
 
 OSCMessage = namedtuple('OSCMessage', ('address', 'tags', 'args', 'index'))
 
-@raw_stream
+@stream
 def osc_stream(address='0.0.0.0', port=8000):
-    return (packet_stream(address, port, 65536)
-            .map(lambda p: to_stream([OSCMessage(*m) for m in oscpy.parser.read_packet(p[0])]))
-            .join())
+    for packet, _ in packet_stream(address, port, 65536):
+        for message in oscpy.parser.read_packet(packet):
+            yield OSCMessage(*message)
 
-
-# Notes from experimentation:
+# TODO: Try writing the other versions with generators, compare performance again.
+# Notes from experimentation (back in Aleatora Classic):
 # @raw_stream
 # def blocking_count(count=0):
 #     def closure():

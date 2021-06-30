@@ -13,7 +13,7 @@ except ImportError as err:
     beat = P = tune = optional_dependency_help
 from .filters import *
 from . import midi
-# from . import net
+from . import net
 from .profile import profile
 from .speech import speech, sing
 from .streams import *
