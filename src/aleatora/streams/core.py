@@ -218,7 +218,7 @@ class MixStream(Stream):
         # that we remove exhausted iterators rather than replacing them with fillers.
         iterators = [iter(it) for it in self.streams]
         while True:
-            while True:
+            while iterators:
                 try:
                     acc = next(iterators[-1])
                     break
