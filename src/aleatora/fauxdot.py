@@ -6,7 +6,7 @@ from . import wav
 
 try:
     from FoxDotPatterns import (
-        P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, PRand, ParsePlayString,
+        GeneratorPattern, P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, PRand, ParsePlayString,
         Root, Scale, get_freq_and_midi, Samples, nil
     )
 except ImportError as exc:
@@ -26,6 +26,17 @@ def buffer_free(buffer):
 
 Samples.buffer_read = buffer_read
 Samples.buffer_free = buffer_free
+
+# Monkey-patch GeneratorPattern to avoid caching results (for nondeterministic replayability).
+def GeneratorPattern_getitem(self, index=None, *args):
+    """ Calls self.func(index) to get an item if index is not in
+        self.history, otherwise returns self.history[index] """
+    if index is None:
+        index, self.index = self.index, self.index + 1
+    return self.func(index)
+
+GeneratorPattern.getitem = GeneratorPattern_getitem
+
 
 def pattern_to_stream(patternish):
     # Convert a pattern-like object to a stream.
