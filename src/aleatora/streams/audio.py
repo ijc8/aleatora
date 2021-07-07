@@ -6,6 +6,7 @@ import os
 import pickle
 import random
 import time
+from typing import overload
 
 from .core import FunctionStream, const, count, empty, stream, Stream, repeat
 
@@ -246,14 +247,6 @@ def interp(stream):
             next_time = convert_time(next_time)
         yield prev_value + (next_value - prev_value) * (time - prev_time)/(next_time - prev_time)
 
-def freeze(strm, verbose=False):
-    if verbose:
-        t = time.time()
-    r = list(strm)
-    if verbose:
-        print("Done in", time.time() - t)
-    return stream(r)
-
 # Essentially a partial freeze of length 1.
 # Useful for determining the number of channels automatically.
 def peek(strm, default=None):
@@ -347,23 +340,40 @@ def hot(f):
 
 FROZEN_PATH = 'frozen'
 
-# Freeze a stream and save the result to a file.
-# If the file already exists, load it instead of running the stream.
-# Like freeze(), assumes `stream` is finite.
-def frozen(name, stream, redo=False):
+# TODO: Perhaps make this a method on Stream?
+@overload
+def freeze(strm, verbose=False):
+    ...
+@overload
+def freeze(key: str, strm, redo=False, verbose=False):
+    ...
+def freeze(key=None, strm=None, redo=False, verbose=False):
+    """Freeze a stream and optionally save the result to a file. Assumes `stream` is finite.
+
+    If the file already exists, load it instead of running the stream, unless redo=True.
+    """
+    if strm is None:
+        # First overload.
+        strm = key
+        t = time.time()
+        r = list(strm)
+        if verbose:
+            print("Done in", time.time() - t)
+        return stream(r)
     os.makedirs(FROZEN_PATH, exist_ok=True)
-    path = os.path.join(FROZEN_PATH, f'frozen_{name}.pkl')
+    path = os.path.join(FROZEN_PATH, f'frozen_{key}.pkl')
     if not redo:
         try:
             # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
             # (Hashes differently between session, if referenced objects are created in the session.)
             with open(path, 'rb') as f:
-                return pickle.load(f)
+                return Stream(pickle.load(f))
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been frozen before.
             redo = True
     if redo:
-        it = iter(stream)
+        t = time.time()
+        it = iter(strm)
         # Try to freeze into an array, until we encounter an object that cannot be converted to float.
         items = array.array('d')
         for item in it:
@@ -375,10 +385,11 @@ def frozen(name, stream, redo=False):
                 items.append(item)
                 items.extend(it)
                 break
-        stream = Stream(items)
+        if verbose:
+            print("Done in", time.time() - t)
         with open(path, 'wb') as f:
-            pickle.dump(stream, f)
-        return stream
+            pickle.dump(items, f)
+        return Stream(items)
 
 # This is similar to frozen(), but it records the stream *as it plays* rather than forcing the entire stream ahead of time.
 # This is a critical distinction for any stream that depends on external time-varying state, such as audio.input_stream.
