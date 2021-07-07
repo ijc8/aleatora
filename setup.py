@@ -50,9 +50,8 @@ setuptools.setup(
     packages=setuptools.find_packages(where="src"),
     python_requires=">=3.6",
     install_requires=[
-        "astor",  # TODO: Remove dependency after upgrading to Python >= 3.9, which has ast.unparse().
         "mido",
-        "numpy~=1.19.0",
+        "numpy",
         "oscpy",
         "scipy",
         "sounddevice",

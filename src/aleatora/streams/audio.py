@@ -350,14 +350,14 @@ FROZEN_PATH = 'frozen'
 # Freeze a stream and save the result to a file.
 # If the file already exists, load it instead of running the stream.
 # Like freeze(), assumes `stream` is finite.
-@stream
 def frozen(name, stream, redo=False):
-    os.makedirs(FROZEN_PATH, exists_ok=True)
+    os.makedirs(FROZEN_PATH, exist_ok=True)
+    path = os.path.join(FROZEN_PATH, f'frozen_{name}.pkl')
     if not redo:
         try:
             # Considered using a default name generated via `hash(stream_fn.__code__)`, but this had too many issues.
             # (Hashes differently between session, if referenced objects are created in the session.)
-            with open(os.path.join(FROZEN_PATH, f'frozen_{name}.pkl'), 'rb') as f:
+            with open(path, 'rb') as f:
                 return pickle.load(f)
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been frozen before.
@@ -376,19 +376,19 @@ def frozen(name, stream, redo=False):
                 items.extend(it)
                 break
         stream = Stream(items)
-        with open(f'frozen_{name}.pkl', 'wb') as f:
+        with open(path, 'wb') as f:
             pickle.dump(stream, f)
         return stream
 
 # This is similar to frozen(), but it records the stream *as it plays* rather than forcing the entire stream ahead of time.
 # This is a critical distinction for any stream that depends on external time-varying state, such as audio.input_stream.
 # Conceptually, record() is a cross between frozen() and memoize().
-@stream
 def record(name, stream, redo=False, include_return=False):
-    os.makedirs(FROZEN_PATH, exists_ok=True)
+    os.makedirs(FROZEN_PATH, exist_ok=True)
+    path = os.path.join(FROZEN_PATH, f'record_{name}.pkl')
     if not redo:
         try:
-            with open(os.path.join(FROZEN_PATH, f'record_{name}.pkl'), 'rb') as f:
+            with open(path, 'rb') as f:
                 return pickle.load(f)
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been recorded before.
@@ -397,7 +397,7 @@ def record(name, stream, redo=False, include_return=False):
         final_stream = None
         # After the initial record finishes, we want to replay the
         # stored stream (rather than recording again or appending).
-        def closure():
+        def helper():
             if final_stream:
                 return final_stream()
             else:
@@ -405,11 +405,11 @@ def record(name, stream, redo=False, include_return=False):
                 def finish(_):
                     nonlocal final_stream
                     final_stream = Stream(recorded)
-                    with open(f'record_{name}.pkl', 'wb') as f:
+                    with open(path, 'wb') as f:
                         pickle.dump(final_stream, f)
                     return empty
                 return stream.map(lambda x: recorded.append(x) or x).bind(finish)()
-        return closure
+        return FunctionStream(helper)
 
 # TODO: This will need rework.
 # This is a function that can split a stream into multiple streams that will yield the same values.
