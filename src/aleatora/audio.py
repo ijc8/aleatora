@@ -74,8 +74,6 @@ def play_callback(outdata, frames, time, status):
         return
     try:
         i = -1
-        # NOTE: This assumes _input_sample gets bound BEFORE we pull the next sample from _samples.
-        # TODO: Make sure it actually works like that!
         for i, sample in zip(range(frames), _samples):
             outdata[i] = sample
     except Exception as e:
@@ -131,8 +129,6 @@ def play(*streams, mix=False):
         # Peek ahead to determine the number of channels automatically.
         sample, stream = peek(streams[0])
         channels = getattr(sample, "__len__", lambda: 1)()
-        stream = streams[0]
-        channels = 1
     else:
         # Passed multiple tracks; zip them together as channels.
         stream = Stream.zip(*streams).map(frame)
