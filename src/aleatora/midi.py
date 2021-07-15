@@ -17,10 +17,11 @@ An _instrument_ is any function that takes an event stream and returns a sample 
 Example usage:
 play(midi.poly_instrument(midi.input_stream()))
 """
-import math
 import mido
 
-from .streams import const, events_in_time, m2f, repeat, SAMPLE_RATE, stream
+from aleatora.streams.core import FunctionStream
+
+from .streams import const, events_in_time, m2f, fm_osc, repeat, SAMPLE_RATE, stream
 
 get_input_names = mido.get_input_names
 
@@ -83,9 +84,11 @@ def render(stream, filename, rate=None, bpm=120):
 # while not persisting is useful for sequencing, or building up instruments
 # (as in converting a monophonic instrument to polyphonic).
 
-# Simple sine instrument. Acknowledges velocity, retriggers.
+# Simple mono instrument. Acknowledges velocity, retriggers.
 @stream
-def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
+def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, waveform=fm_osc):
+    freq_stream = repeat(lambda: freq)
+    waveform_iter = iter(waveform(freq_stream))
     for events in stream:
         if not events:
             pass
@@ -99,23 +102,29 @@ def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, persist=True):
             amp = max(target_amp, amp - 1e-4)
         else:
             amp = min(target_amp, amp + 1e-6 * velocity**2)
-        phase += 2*math.pi*freq/SAMPLE_RATE
-        if not persist and amp == 0 and velocity == 0:
-            return
-        yield amp * math.sin(phase)
-
+        yield amp * next(waveform_iter)
+    while amp > 0:
+        if amp > target_amp:
+            amp = max(target_amp, amp - 1e-4)
+        else:
+            amp = min(target_amp, amp + 1e-6 * velocity**2)
+        yield amp * next(waveform_iter)
 
 # Convert a monophonic instrument into a polyphonic instrument.
-# Assumes the monophonic instrument takes a boolean argument called `persist`.
 def poly(monophonic_instrument, persist_internal=False):
     # Provides a 'substream' of messages for a single voice in a polyphonic instrument.
     def make_event_substream():
-        substream = repeat(lambda: substream.events)
+        @FunctionStream
+        def substream():
+            while substream.last_event is None:
+                yield substream.events
+            yield (substream.last_event,)
         substream.events = ()
+        substream.last_event = None
         return substream
 
     @stream
-    def polyphonic_instrument(stream, substreams={}, voices={}, persist=True, **kwargs):
+    def polyphonic_instrument(stream, substreams={}, voices={}, **kwargs):
         for events in stream:
             acc = 0
             # Clear old messages:
@@ -131,15 +140,15 @@ def poly(monophonic_instrument, persist_internal=False):
                         substream = make_event_substream()
                         substream.events = (event,)
                         substreams[event.note] = substream
-                        voices[event.note] = iter(monophonic_instrument(substream, persist=persist_internal, **kwargs))
+                        voices[event.note] = iter(monophonic_instrument(substream, **kwargs))
                 elif event.type == 'note_off':
                     if event.note in substreams:
-                        substreams[event.note].events = (event,)
-                        if not persist_internal:
+                        if persist_internal:
+                            substreams[event.note].events = (event,)
+                        else:
+                            substreams[event.note].last_event = event
                             del substreams[event.note]
 
-            if not persist and not voices:
-                return
             dead_list = []
             for note, voice in voices.items():
                 try:
@@ -154,8 +163,8 @@ def poly(monophonic_instrument, persist_internal=False):
             yield acc
     return polyphonic_instrument
 
-def poly_instrument(event_stream):
-    return poly(mono_instrument)(event_stream)
+def poly_instrument(event_stream, **kwargs):
+    return poly(mono_instrument)(event_stream, **kwargs)
 
 
 # Takes [(pitch, duration)] and converts it to a Stream of Messages.

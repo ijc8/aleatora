@@ -11,7 +11,7 @@ try:
     )
 except ImportError as exc:
     raise ImportError(
-        "Missing optional dependency 'FauxDotPatterns'.\n"
+        "Missing optional dependency 'FoxDotPatterns'.\n"
         "Install via `python -m pip install https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip`."
     )
 
@@ -45,9 +45,9 @@ def pattern_to_stream(patternish):
     else:
         return just(patternish)
 
-# There are other things that can be patternish, like `root` or `sample`, but this just deals timing.
+# TODO: Handle additional patternish parameters like `root`.
 # (degree is included because it may contain PGroups that affect subdivision timing.)
-def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120):
+def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, sample=0):
     if sus is None:
         sus = dur
     degree = pattern_to_stream(degree)
@@ -56,26 +56,27 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120):
     delay = pattern_to_stream(delay).cycle()
     amp = pattern_to_stream(amp).cycle()
     bpm = pattern_to_stream(bpm).cycle()
+    sample = pattern_to_stream(sample).cycle()
     @stream
-    def _event_stream(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream):
-        for (degree, dur, sus, delay, amp, bpm) in zip(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream):
+    def _event_stream(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream, sample_stream):
+        for (degree, dur, sus, delay, amp, bpm, sample) in zip(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream, sample_stream):
             # TODO: May need to deal with PGroupOr (which has a custom calculate_sample) here or punt.
             # TODO: Check how these are supposed to interact with sus and delay.
             # NOTE: We should not see nested Patterns here (just groups), because they should already be taken care of by pattern_to_stream.
             if isinstance(degree, PGroupOr):
-                pass
+                yield from _event_stream(pattern_to_stream(degree.data), const(dur), const(sus), const(delay), const(amp), const(bpm), pattern_to_stream(degree.meta[0]).cycle())
             elif isinstance(degree, PGroupPlus):
                 # Spread over `sus`.
-                yield from _event_stream(pattern_to_stream(degree.data), const(sus / len(degree)), const(sus), const(delay), const(amp), const(bpm))
+                yield from _event_stream(pattern_to_stream(degree.data), const(sus / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
             elif isinstance(degree, PGroupPrime):
                 # All of the other PGroupPrime subclasses spread over `dur`.
-                yield from _event_stream(pattern_to_stream(degree.data), const(dur / len(degree)), const(sus), const(delay), const(amp), const(bpm))
+                yield from _event_stream(pattern_to_stream(degree.data), const(dur / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
             elif isinstance(degree, PGroup):
                 # Everything in here needs to happen simultaneously; yield a list of layers.
-                yield [_event_stream(pattern_to_stream(layer), const(dur), const(sus), const(delay), const(amp), const(bpm)) for layer in degree.data]
+                yield [_event_stream(pattern_to_stream(layer), const(dur), const(sus), const(delay), const(amp), const(bpm), const(sample)) for layer in degree.data]
             else:
-                yield (degree, dur, sus, delay, amp, bpm)
-    return _event_stream(degree, dur, sus, delay, amp, bpm)
+                yield (degree, dur, sus, delay, amp, bpm, sample)
+    return _event_stream(degree, dur, sus, delay, amp, bpm, sample)
 
 # Used for beat(), which is the analog of play().
 # TODO: Just write a sampler instrument and use `events_to_messages`.
@@ -87,13 +88,8 @@ def events_to_samples(event_stream):
             yield from sum(events_to_samples(layer) for layer in event)
         else:
             # NOTE: Like play(), this ignores `sus`.
-            degree, dur, sus, delay, amp, bpm = event
-            index = 0
-            if isinstance(degree, PGroupOr):
-                # Support basic sample-choosing syntax, as in |x2|.
-                index = degree.meta[0]
-                degree = degree[0]
-            sample = Samples.getBufferFromSymbol(degree, index).stream
+            degree, dur, sus, delay, amp, bpm, sample = event
+            sample = Samples.getBufferFromSymbol(degree, sample).stream
             if amp != 1:
                 sample *= amp
             # NOTE: `delay` does not throw off future timing.
@@ -104,10 +100,10 @@ def events_to_samples(event_stream):
             yield from fit(sample, dur)
 
 # TODO: Support sample, maybe support amplify.
-def beat(pattern, dur=0.5, sus=None, delay=0, sample=0, amp=1, bpm=120):
+def beat(pattern, dur=0.5, sus=None, delay=0, amp=1, bpm=120, sample=0):
     if sus is None:
         sus = dur
-    return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm))
+    return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm, sample))
 
 # TODO: can root, scale, oct be patterns?
 # Used for regular instruments (everything except play(), e.g. pluck()).
@@ -119,7 +115,7 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
             # Group: layers should occur simultaneously
             yield from sum((events_to_messages(layer, root, scale, oct) for layer in event), empty)
         else:
-            degree, dur, sus, delay, amp, bpm = event
+            degree, dur, sus, delay, amp, bpm, _ = event
             _, pitch = get_freq_and_midi(degree, oct, root, scale)
             if delay != 0:
                 delay *= 60/bpm

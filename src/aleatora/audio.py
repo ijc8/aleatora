@@ -135,7 +135,7 @@ def play(*streams, mix=False):
         channels = 1
     else:
         # Passed multiple tracks; zip them together as channels.
-        stream = Stream.zip(*streams)
+        stream = Stream.zip(*streams).map(frame)
         channels = len(streams)
     
     if mix and _samples is not None:
