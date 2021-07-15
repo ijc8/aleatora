@@ -21,7 +21,7 @@ import mido
 
 from aleatora.streams.core import FunctionStream
 
-from .streams import const, events_in_time, m2f, fm_osc, repeat, SAMPLE_RATE, stream
+from .streams import const, events_in_time, m2f, osc, repeat, SAMPLE_RATE, stream
 
 get_input_names = mido.get_input_names
 
@@ -86,7 +86,7 @@ def render(stream, filename, rate=None, bpm=120):
 
 # Simple mono instrument. Acknowledges velocity, retriggers.
 @stream
-def mono_instrument(stream, freq=0, phase=0, amp=0, velocity=0, waveform=fm_osc):
+def mono_instrument(stream, freq=0, amp=0, velocity=0, waveform=osc):
     freq_stream = repeat(lambda: freq)
     waveform_iter = iter(waveform(freq_stream))
     for events in stream:

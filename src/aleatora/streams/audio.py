@@ -1,4 +1,5 @@
 import array
+import collections
 import math
 import numpy as np
 import operator
@@ -133,29 +134,34 @@ def mod(modulus):
     while True:
         yield from range(modulus)
 
+def maybe_const(thing):
+    if isinstance(thing, collections.Iterable):
+        return thing
+    return const(thing)
+
 @stream
-def osc(freq, phase=0):
-    while True:
+def osc(freqs, phase=0):
+    for freq in maybe_const(freqs):
         yield math.sin(phase)
         phase += 2*math.pi*freq/SAMPLE_RATE
 
 # NOTE: Aliased. For versions that don't alias, see aa_{saw,sqr,tri}.
 @stream
-def saw(freq, t=0):
-    while True:
+def saw(freqs, t=0):
+    for freq in maybe_const(freqs):
         yield t*2 - 1
         t = (t + freq/SAMPLE_RATE) % 1
 
 @stream
-def sqr(freq, t=0):
-    while True:
-        yield int(t < 0.5)*2 - 1
+def sqr(freqs, t=0, duty=0.5):
+    for freq in maybe_const(freqs):
+        yield int(t < duty)*2 - 1
         t = (t + freq/SAMPLE_RATE) % 1
 
 @stream
-def tri(freq, t=0):
-    while True:
-        yield abs(t - 0.5)*2 - 1
+def tri(freqs, t=0):
+    for freq in maybe_const(freqs):
+        yield abs(t - 0.5)*4 - 1
         t = (t + freq/SAMPLE_RATE) % 1
 
 def basic_envelope(length):
@@ -172,12 +178,6 @@ def m2f(midi):
     return 2**((midi - 69)/12) * 440
 
 ## TODO: EXPERIMENTAL - needs documentation & integration
-
-@stream
-def fm_osc(freq_stream, phase=0):
-    for freq in freq_stream:
-        yield math.sin(phase)
-        phase += 2*math.pi*freq/SAMPLE_RATE
 
 @stream
 def glide(freq_stream, hold_time, transition_time, start_freq=0):
@@ -206,19 +206,6 @@ def adsr(attack, decay, sustain_time, sustain_level, release):
 # TODO: Add in length metadata?
 def fit(stream, length):
     return (stream >> silence)[:length]
-
-@stream
-def pulse(freq, duty, t=0):
-    while True:
-        yield int(t < duty)*2 - 1
-        t = (t + freq/SAMPLE_RATE) % 1
-
-# TODO: conslidate? maybe introduce some constant-to-iterable helper function?
-@stream
-def fm_pulse(freqs, duty, t=0):
-    for freq in freqs:
-        yield int(t < duty)*2 - 1
-        t = (t + freq/SAMPLE_RATE) % 1
 
 rand = repeat(random.random)
 

@@ -29,7 +29,6 @@ def stream(thing):
         return lambda *args, **kwargs: FunctionStream(lambda: thing(*args, **kwargs))
     raise ValueError("Expected iterable or function")
 
-
 class Stream(collections.abc.Iterable):
     def __init__(self, iterable):
         self.iterable = iterable
