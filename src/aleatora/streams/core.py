@@ -72,7 +72,7 @@ class Stream(collections.abc.Iterable):
             return SliceStream(self, index.start, index.stop, index.step)
     
     __radd__ = _make_stream_op(operator.add, reversed=True)
-    __rsub__ = _make_stream_op(operator.add, reversed=True)
+    __rsub__ = _make_stream_op(operator.sub, reversed=True)
 
     # `a * b` means a amplitude-modulated by b (order doesn't matter).
     # I don't know if this has a equivalent in tape, but in electronics terms this is a mixer.

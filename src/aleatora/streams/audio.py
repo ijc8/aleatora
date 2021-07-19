@@ -20,6 +20,10 @@ def convert_time(time):
         return int(time * SAMPLE_RATE)
     return time
 
+# db to gain, for amplitudes
+def db(decibels):
+    return 10**(decibels/20)
+
 # Helper function to reduce boilerplate in the class definition below.
 def make_frame_op(op, reversed=False):
     if reversed:
@@ -111,7 +115,10 @@ def resample(stream, advance_stream):
     it = iter(stream)
     pos = 0
     sample = 0
-    next_sample = next(it)
+    try:
+        next_sample = next(it)
+    except StopIteration:
+        raise
     for advance in advance_stream:
         pos += advance
         while pos > 1:
@@ -164,6 +171,7 @@ def tri(freqs, t=0):
         yield abs(t - 0.5)*4 - 1
         t = (t + freq/SAMPLE_RATE) % 1
 
+@stream
 def basic_envelope(length):
     length = convert_time(length)
     ramp_time = int(length * 0.1)
@@ -194,12 +202,17 @@ def basic_sequencer(note_stream, bpm=80):
     return note_stream.map(lambda n: sqr(m2f(n[0])) * basic_envelope(60.0 / bpm * n[1] * 4)).join()
 
 @stream
+def ramp(start, end, dur, hold=False):
+    dur = convert_time(dur)
+    for i in range(dur):
+        yield start + (end - start)/dur*i
+    if hold:
+        while True:
+            yield end
+
 def adsr(attack, decay, sustain_time, sustain_level, release):
     attack, decay, sustain_time, release = map(convert_time, (attack, decay, sustain_time, release))
-    yield from (count() / attack())[:attack]  # Attack
-    yield from (count()/decay * (1 - sustain_level) + sustain_level)[:decay]/decay  # Decay
-    yield from (ones * sustain_level)[:sustain_time]  # Sustain
-    yield from ((1 - count(1)/release) * sustain_level)[:release]  # Release
+    return ramp(0, 1, attack) >> ramp(1, sustain_level, decay) >> const(sustain_level)[:sustain_time] >> ramp(sustain_level, 0, release)
 
 # This function produces a stream of exactly length, by trimming or padding as needed.
 # Hypothetically, might also want a function that strictly pads (like str.ljust()).

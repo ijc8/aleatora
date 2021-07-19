@@ -1,6 +1,6 @@
 import collections
 
-from .streams import const, empty, fit, just, SAMPLE_RATE, silence, stream
+from .streams import const, empty, fit, just, SAMPLE_RATE, silence, stream, Stream
 from . import midi
 from . import wav
 
@@ -40,7 +40,9 @@ GeneratorPattern.getitem = GeneratorPattern_getitem
 
 def pattern_to_stream(patternish):
     # Convert a pattern-like object to a stream.
-    if isinstance(patternish, collections.abc.Iterable):
+    if isinstance(patternish, Stream):
+        return patternish
+    elif isinstance(patternish, collections.abc.Iterable):
         return stream(Pattern(patternish))
     else:
         return just(patternish)
