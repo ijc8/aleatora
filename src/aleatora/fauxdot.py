@@ -10,10 +10,7 @@ try:
         Root, Scale, get_freq_and_midi, Samples, nil
     )
 except ImportError as exc:
-    raise ImportError(
-        "Missing optional dependency 'FauxDotPatterns'.\n"
-        "Install via `python -m pip install https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip`."
-    )
+    raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
 
 nil.stream = core.empty
 

@@ -12,11 +12,9 @@ Additionally, streams may contain any kind of data type, not just samples. So yo
 
 ## Installation
 
-    git clone https://github.com/ijc8/aleatora.git
-    cd aleatora
-    virtualenv venv -p pypy3  # or python3, if you want to go slooow and probably have more underruns
+    virtualenv venv -p pypy3  # or python3, if you're okay with more underruns
     source venv/bin/activate
-    pip install .  # for optional features, add a bracketed list like `.[speech,foxdot]` (or `.[all]`)
+    pip install aleatora  # for optional features, append a bracketed list like `[speech,foxdot]` (or `[all]`)
 
 To ensure installation succeeded and that you can get sound out, try playing a sine tone:
 ```python
