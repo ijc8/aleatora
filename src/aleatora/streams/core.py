@@ -133,9 +133,13 @@ class Stream(collections.abc.Iterable):
             yield from stream
 
     @stream
-    def cycle(self):
-        while True:
-            yield from self
+    def cycle(self, limit=None):
+        if limit:
+            for _ in range(limit):
+                yield from self
+        else:
+            while True:
+                yield from self
     
     @stream
     def hold(self, duration):
