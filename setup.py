@@ -25,14 +25,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 # Dependencies for optional features
 speech = ["gtts", "streamp3~=0.1.7"]
-foxdot = ["FoxDotPatterns @ https://github.com/ijc8/FoxDotPatterns/archive/refs/heads/master.zip"]
+foxdot = ["FoxDotPatterns~=0.1.0"]
 
 setuptools.setup(
-    name="aleatora", # Replace with your own username
+    name="aleatora",
     version=version,
     author="Ian Clester",
     author_email="ijc@ijc8.me",
-    description="Music composition framework based on streams.",
+    description="Compose music with streams.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ijc8/aleatora",
@@ -42,6 +42,11 @@ setuptools.setup(
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Topic :: Artistic Software",
+        "Topic :: Multimedia :: Sound/Audio",
+        "Topic :: Multimedia :: Sound/Audio :: Editors",
+        "Topic :: Multimedia :: Sound/Audio :: MIDI",
+        "Topic :: Multimedia :: Sound/Audio :: Mixers",
         "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
@@ -58,7 +63,6 @@ setuptools.setup(
     ],
     extras_require={
         "speech": speech,
-        # NOTE: This will not work when installing from PyPI, because it's a non-PyPI URL.
         "foxdot": foxdot,
         "all": speech + foxdot,
     }
