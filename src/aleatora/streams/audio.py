@@ -91,8 +91,9 @@ class frame(tuple):
         return f"frame{super().__str__()}"
 
 
-# Monkey-patch stream slicing.
-# Ideally, this would go in a subclass, but there are some unresolved problems there for Concat and Mix streams.
+# Monkey-patch stream slicing, freezing, and recording onto Stream.
+# Ideally, these would go in a subclass, but there are some unresolved problems there for Concat and Mix streams.
+
 super_getitem = Stream.__getitem__
 
 def AudioStream_getitem(self, index):
@@ -108,6 +109,16 @@ def AudioStream_getitem(self, index):
         super_getitem(self, convert_time(index))
 
 Stream.__getitem__ = AudioStream_getitem
+
+def AudioStream_freeze(self, key=None, redo=False, verbose=False):
+    return freeze(key, self, redo, verbose)
+
+Stream.freeze = AudioStream_freeze
+
+def AudioStream_record(self, key=None, redo=False):
+    return record(key, self, redo)
+
+Stream.record = AudioStream_record
 
 # Stream-controlled resampler. Think varispeed.
 @stream
@@ -340,7 +351,6 @@ def hot(f):
 
 FROZEN_PATH = 'frozen'
 
-# TODO: Perhaps make this a method on Stream?
 @overload
 def freeze(strm, verbose=False):
     ...
@@ -355,6 +365,8 @@ def freeze(key=None, strm=None, redo=False, verbose=False):
     if strm is None:
         # First overload.
         strm = key
+        key = None
+    if key is None:
         t = time.time()
         r = list(strm)
         if verbose:
@@ -370,57 +382,67 @@ def freeze(key=None, strm=None, redo=False, verbose=False):
                 return Stream(pickle.load(f))
         except FileNotFoundError:
             # File doesn't exist: stream hasn't been frozen before.
-            redo = True
-    if redo:
-        t = time.time()
-        it = iter(strm)
-        # Try to freeze into an array, until we encounter an object that cannot be converted to float.
-        items = array.array('d')
-        for item in it:
-            try:
-                items.append(item)
-            except TypeError:
-                # Non-float item; switch from array to list.
-                items = list(items)
-                items.append(item)
-                items.extend(it)
-                break
-        if verbose:
-            print("Done in", time.time() - t)
-        with open(path, 'wb') as f:
-            pickle.dump(items, f)
-        return Stream(items)
+            pass
+    t = time.time()
+    it = iter(strm)
+    # Try to freeze into an array, until we encounter an object that cannot be converted to float.
+    items = array.array('d')
+    for item in it:
+        try:
+            items.append(item)
+        except TypeError:
+            # Non-float item; switch from array to list.
+            items = list(items)
+            items.append(item)
+            items.extend(it)
+            break
+    if verbose:
+        print("Done in", time.time() - t)
+    with open(path, 'wb') as f:
+        pickle.dump(items, f)
+    return Stream(items)
 
 # This is similar to frozen(), but it records the stream *as it plays* rather than forcing the entire stream ahead of time.
 # This is a critical distinction for any stream that depends on external time-varying state, such as audio.input_stream.
 # Conceptually, record() is a cross between frozen() and memoize().
-def record(name, stream, redo=False, include_return=False):
-    os.makedirs(FROZEN_PATH, exist_ok=True)
-    path = os.path.join(FROZEN_PATH, f'record_{name}.pkl')
-    if not redo:
-        try:
-            with open(path, 'rb') as f:
-                return pickle.load(f)
-        except FileNotFoundError:
-            # File doesn't exist: stream hasn't been recorded before.
-            redo = True
-    if redo:
-        final_stream = None
-        # After the initial record finishes, we want to replay the
-        # stored stream (rather than recording again or appending).
-        def helper():
-            if final_stream:
-                return final_stream()
-            else:
-                recorded = []
-                def finish(_):
-                    nonlocal final_stream
-                    final_stream = Stream(recorded)
+@overload
+def record(stream, verbose=False):
+    ...
+@overload
+def record(key: str, stream, redo=False, verbose=False):
+    ...
+def record(key=None, stream=None, redo=False):
+    if stream is None:
+        # First overload.
+        stream = key
+        key = None
+    if key is not None:
+        os.makedirs(FROZEN_PATH, exist_ok=True)
+        path = os.path.join(FROZEN_PATH, f'record_{key}.pkl')
+        if not redo:
+            try:
+                with open(path, 'rb') as f:
+                    return pickle.load(f)
+            except FileNotFoundError:
+                # File doesn't exist: stream hasn't been recorded before.
+                pass
+    final_stream = None
+    # After the initial record finishes, we want to replay the
+    # stored stream (rather than recording again or appending).
+    def helper():
+        if final_stream:
+            return iter(final_stream)
+        else:
+            recorded = []
+            def finish(_):
+                nonlocal final_stream
+                final_stream = Stream(recorded)
+                if key is not None:
                     with open(path, 'wb') as f:
                         pickle.dump(final_stream, f)
-                    return empty
-                return stream.map(lambda x: recorded.append(x) or x).bind(finish)()
-        return FunctionStream(helper)
+                return empty
+            return iter(stream.map(lambda x: recorded.append(x) or x).bind(finish))
+    return FunctionStream(helper)
 
 # TODO: This will need rework.
 # This is a function that can split a stream into multiple streams that will yield the same values.
