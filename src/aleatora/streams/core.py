@@ -178,6 +178,19 @@ class Stream(collections.abc.Iterable):
                 saved.append(x)
         return FunctionStream(helper)
 
+    @stream
+    def chunk(self, size=128):
+        it = iter(self)
+        chunk = list(stream(it)[:size])
+        while chunk:
+            yield chunk
+            chunk = list(stream(it)[:size])
+
+    @stream
+    def flatten(self):
+        for chunk in self:
+            yield from chunk
+
 
 
 class FunctionStream(Stream):

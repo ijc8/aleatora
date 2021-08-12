@@ -128,13 +128,16 @@ def resample(stream, advance_stream):
     sample = 0
     try:
         next_sample = next(it)
-    except StopIteration:
-        raise
+    except StopIteration as e:
+        return e.value
     for advance in advance_stream:
         pos += advance
         while pos > 1:
             sample = next_sample
-            next_sample = next(it)
+            try:
+                next_sample = next(it)
+            except StopIteration as e:
+                return e.value
             pos -= 1
         yield sample + (next_sample - sample) * pos
 

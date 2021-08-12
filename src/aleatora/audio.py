@@ -10,6 +10,7 @@ def run(composition, blocksize=0):
     samples = iter(composition)
 
     def callback(outdata, frames, time, status):
+        i = -1
         for i, sample in zip(range(frames), samples):
             outdata[i] = sample
         if i < frames - 1:
