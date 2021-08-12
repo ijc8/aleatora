@@ -14,6 +14,7 @@ except ImportError as err:
 from .filters import *
 from . import midi
 from . import net
+from . import plugins
 from .profile import profile
 from .speech import speech, sing
 from .streams import *
