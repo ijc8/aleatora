@@ -63,9 +63,9 @@ public:
 
 from cppyy.gbl.popsicle import WrapperApplication
 
-class VSTEditor:
-    def __init__(self, vst):
-        self.vst = vst
+class PluginEditor:
+    def __init__(self, plugin):
+        self.plugin = plugin
         self.closed = threading.Event()
 
     def run_loop(self):
@@ -85,7 +85,7 @@ class VSTEditor:
         # Dexed changes the process's working directory when it sets up its editor.
         # So we back it up here and reset it below.
         dir = os.getcwd()
-        component = self.vst.createEditor()
+        component = self.plugin.createEditor()
         self.application = WrapperApplication(component)
         os.chdir(dir)
         self.application.initialiseApp()
@@ -99,7 +99,7 @@ class VSTEditor:
     def wait(self):
         self.closed.wait()
 
-class HostedVST:
+class Plugin:
     def __init__(self, path, block_size, volume_threshold, instrument, sample_rate=SAMPLE_RATE):
         self.sample_rate = sample_rate
         self.block_size = block_size
@@ -107,10 +107,11 @@ class HostedVST:
         self.instrument = instrument
 
         plugins = juce.OwnedArray(juce.PluginDescription)()
-        pluginList.scanAndAddFile(juce.String(path), True, plugins, juce.VSTPluginFormat())
+        # Unlike `scanAndAddFile`, this function tries to determine the current plugin format for us.
+        pluginList.scanAndAddDragAndDroppedFiles(pluginManager, juce.StringArray(juce.String(path)), plugins)
         error = juce.String()
-        self.vst = pluginManager.createPluginInstance(plugins[0], sample_rate, block_size, error)
-        self.ui = VSTEditor(self.vst)
+        self.plugin = pluginManager.createPluginInstance(plugins[0], sample_rate, block_size, error)
+        self.ui = PluginEditor(self.plugin)
     
     def __call__(self, stream):
         if self.instrument:
@@ -120,7 +121,7 @@ class HostedVST:
 
     @stream
     def run_with_events(self, event_stream):
-        self.vst.prepareToPlay(self.sample_rate, self.block_size)
+        self.plugin.prepareToPlay(self.sample_rate, self.block_size)
         buffer = juce.AudioBuffer(float)(1, self.block_size)
         array = buffer.getReadPointer(0)
         array.reshape((self.block_size,))
@@ -134,18 +135,18 @@ class HostedVST:
                         midiBuffer.addEvent(juce.MidiMessage.noteOff(1, int(event.note)), i)
                     else:
                         raise ValueError("Unknown event type:", event.type)
-            self.vst.processBlock(buffer, midiBuffer)
+            self.plugin.processBlock(buffer, midiBuffer)
             # TODO: Handle multiple channels.
             for x in array:
                 yield x
         npArray = np.frombuffer(memoryview(array), dtype=np.float32)
         while True:
-            self.vst.processBlock(buffer, midiBuffer)
+            self.plugin.processBlock(buffer, midiBuffer)
             yield from array
             if self.volume_threshold is not None:
                 rms = np.sqrt((npArray ** 2).mean())
                 if rms < self.volume_threshold:
                     return
 
-def load_vsti(path, block_size=512, volume_threshold=2e-6):
-    return HostedVST(path, block_size, volume_threshold=volume_threshold, instrument=True)
+def load(path, block_size=512, volume_threshold=2e-6):
+    return Plugin(path, block_size, volume_threshold=volume_threshold, instrument=True)

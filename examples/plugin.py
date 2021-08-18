@@ -1,5 +1,5 @@
 from aleatora import *
-dexed = plugins.load_vsti("/home/ian/.vst/Dexed.so")
+dexed = plugins.load("/home/ian/.vst/Dexed.so")
 dexed.ui.open()
 # Plugin GUI is now open in its own window: user can switch presets, change parameters.
 dexed.ui.wait()
