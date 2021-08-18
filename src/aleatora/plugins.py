@@ -1,29 +1,115 @@
+import os
+import sys
+import threading
+
+import cppyy
 import numpy as np
-import pyvst
+from popsicle import juce, juce_audio_processors
 
 from .streams import stream, SAMPLE_RATE
 
-OPEN_EDITOR = 0 # redacted, just in case
-IDLE_EDITOR = 0 # redacted, just in case
+pluginManager = juce.AudioPluginFormatManager()
+pluginManager.addDefaultFormats()
+pluginList = juce.KnownPluginList()
+
+# Inline C++: define an application to wrap the plugin UI.
+# Could do this in Python, but overriding C++ virtuals in Python subclasses is broken in PyPy.
+# See https://bitbucket.org/wlav/cppyy/issues/80/override-virtual-function-in-python-failed
+cppyy.cppdef("""
+namespace popsicle {
+
+class WrapperWindow : public juce::DocumentWindow {
+public:
+    juce::Component *component;
+
+    WrapperWindow(juce::Component *component)
+    : juce::DocumentWindow(juce::JUCEApplication::getInstance()->getApplicationName(), juce::Colours::black, juce::DocumentWindow::allButtons)
+    , component(component) {
+        setUsingNativeTitleBar(true);
+        setResizable(true, true);
+        setContentNonOwned(component, true);
+        centreWithSize(component->getWidth(), component->getHeight());
+        setVisible(true);
+    }
+
+    void closeButtonPressed() {
+        setVisible(false);
+        removeFromDesktop();
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+    }
+};
+
+class WrapperApplication : public juce::JUCEApplication {
+public:
+    WrapperWindow window;
+
+    WrapperApplication(juce::Component *component): window(component) {}
+
+    void initialise(const juce::String& commandLine) override {}
+ 
+    void shutdown() override {}
+
+    const juce::String getApplicationName() override {
+        return "test";
+    }
+
+    const juce::String getApplicationVersion() override {
+        return "1.0";
+    }
+};
+
+} // namespace popsicle
+""")
+
+from cppyy.gbl.popsicle import WrapperApplication
 
 class VSTEditor:
     def __init__(self, vst):
         self.vst = vst
+        self.closed = threading.Event()
+
+    def run_loop(self):
+        manager = juce.MessageManager.getInstance()
+        # manager.setCurrentThreadAsMessageThread()
+        manager.runDispatchLoop()
+        # juce.shutdownJuce_GUI()
+        self.closed.set()
 
     def open(self):
-        self.vst._dispatch(OPEN_EDITOR)
+        juce.initialiseJuce_GUI()
+        if sys.platform in ["win32", "cygwin"]:
+            juce.Process.setCurrentModuleInstanceHandle()
+        elif sys.platform in ["darwin"]:
+            juce.initialiseNSApplication()
+
+        # Dexed changes the process's working directory when it sets up its editor.
+        # So we back it up here and reset it below.
+        dir = os.getcwd()
+        component = self.vst.createEditor()
+        self.application = WrapperApplication(component)
+        os.chdir(dir)
+        self.application.initialiseApp()
+
+        self.thread = threading.Thread(target=self.run_loop)
+        self.thread.start()
     
-    def idle(self):
-        self.vst._dispatch(IDLE_EDITOR)
+    def close(self):
+        self.application.window.closeButtonPressed()
+
+    def wait(self):
+        self.closed.wait()
 
 class HostedVST:
-    def __init__(self, path, block_size, volume_threshold, instrument):
+    def __init__(self, path, block_size, volume_threshold, instrument, sample_rate=SAMPLE_RATE):
+        self.sample_rate = sample_rate
         self.block_size = block_size
         self.volume_threshold = volume_threshold
         self.instrument = instrument
-        self.host = pyvst.SimpleHost(path, sample_rate=SAMPLE_RATE, block_size=block_size)
-        self.vst = self.host.vst
-        # self.vst.verbose = True
+
+        plugins = juce.OwnedArray(juce.PluginDescription)()
+        pluginList.scanAndAddFile(juce.String(path), True, plugins, juce.VSTPluginFormat())
+        error = juce.String()
+        self.vst = pluginManager.createPluginInstance(plugins[0], sample_rate, block_size, error)
         self.ui = VSTEditor(self.vst)
     
     def __call__(self, stream):
@@ -34,26 +120,30 @@ class HostedVST:
 
     @stream
     def run_with_events(self, event_stream):
-        delta_frames = 0
+        self.vst.prepareToPlay(self.sample_rate, self.block_size)
+        buffer = juce.AudioBuffer(float)(1, self.block_size)
+        array = buffer.getReadPointer(0)
+        array.reshape((self.block_size,))
         for event_chunk in event_stream.chunk(self.block_size):
-            vst_events = []
-            for events in event_chunk:
+            midiBuffer = juce.MidiBuffer()
+            for i, events in enumerate(event_chunk):
                 for event in events:
-                    velocity = 0 if event.velocity is None else int(event.velocity)
-                    vst_events.append(pyvst.midi.midi_note_event(note=int(event.note), velocity=velocity, kind=event.type, delta_frames=delta_frames))
-                    delta_frames = 0
-                delta_frames += 1
-            self.vst.process_events(pyvst.midi.wrap_vst_events(vst_events))
+                    if event.type == "note_on":
+                        midiBuffer.addEvent(juce.MidiMessage.noteOn(1, int(event.note), int(event.velocity)), i)
+                    elif event.type == "note_off":
+                        midiBuffer.addEvent(juce.MidiMessage.noteOff(1, int(event.note)), i)
+                    else:
+                        raise ValueError("Unknown event type:", event.type)
+            self.vst.processBlock(buffer, midiBuffer)
             # TODO: Handle multiple channels.
-            yield from self.vst.process(input=None, sample_frames=self.block_size)[0, :].tolist()
-            self.host.transport.step(self.block_size)
-        # TODO: Optional end condition, like low volume?
+            for x in array:
+                yield x
+        npArray = np.frombuffer(memoryview(array), dtype=np.float32)
         while True:
-            chunk = self.vst.process(input=None, sample_frames=self.block_size)[0, :]
-            yield from chunk.tolist()
-            self.host.transport.step(self.block_size)
+            self.vst.processBlock(buffer, midiBuffer)
+            yield from array
             if self.volume_threshold is not None:
-                rms = np.sqrt((chunk ** 2).mean())
+                rms = np.sqrt((npArray ** 2).mean())
                 if rms < self.volume_threshold:
                     return
 
