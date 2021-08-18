@@ -1,4 +1,5 @@
 import collections
+import heapq
 
 from .streams import const, empty, fit, just, SAMPLE_RATE, silence, stream, Stream
 from . import midi
@@ -108,6 +109,12 @@ def beat(pattern, dur=0.5, sus=None, delay=0, amp=1, bpm=120, sample=0):
 # Used for regular instruments (everything except play(), e.g. pluck()).
 @stream
 def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct=5):
+    # Maintain a priority queue of upcoming events to yield.
+    # We use this to support cases where `sus` is greater than `dur`
+    # (where one note's note_off will come after a subsequent note's note_on).
+    queue = []
+    t = 0
+    i = 0
     for event in event_stream:
         # Each event is either a single event (tuple of details) or a list of layers (substreams of the same type).
         if isinstance(event, list):
@@ -120,14 +127,32 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
                 delay *= 60/bpm
             dur *= 60/bpm
             sus *= 60/bpm
-            # TODO: For the moment, we're capping sus at dur - 1 (sample). (does FoxDot allow overlap between notes in a single layer?)
-            sus = min(dur - 1/SAMPLE_RATE, sus)
             noteon = midi.Message(type='note_on', note=pitch, velocity=int(amp*127))
             noteoff = midi.Message(type='note_off', note=pitch)
-            yield (noteon,)
-            yield from const(())[:sus]
-            yield (noteoff,)
-            yield from const(())[:dur-sus-1/SAMPLE_RATE]
+            heapq.heappush(queue, (t, i, noteon))
+            heapq.heappush(queue, (t + sus, i + 1, noteoff))
+            i += 2
+            end = t + dur
+            while queue and queue[0][0] < end:
+                time, _, event = heapq.heappop(queue)
+                yield from const(())[:time - t]
+                events = (event,)
+                while queue and queue[0][0] <= time:
+                    events += (heapq.heappop(queue)[2],)
+                yield events
+                t = time + 1/SAMPLE_RATE
+            yield from const(())[:end - t]
+            t = end
+    # Flush any remaining `note_off`s.
+    while queue:
+        time, _, event = heapq.heappop(queue)
+        yield from const(())[:time - t]
+        events = (event,)
+        while queue and queue[0][0] <= time:
+            events += (heapq.heappop(queue)[2],)
+        yield events
+        t = time + 1/SAMPLE_RATE
+
 
 # Return an event stream suitable for passing into an instrument.
 def tune(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, root=Root.default, scale=Scale.default, oct=5):
