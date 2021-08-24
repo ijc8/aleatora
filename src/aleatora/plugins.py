@@ -2,7 +2,6 @@ import collections
 import os
 import sys
 import threading
-import _rawffi
 
 import cppyy
 import numpy as np
@@ -149,9 +148,8 @@ class PluginInstance(Stream):
     def save(self, path):
         block = juce.MemoryBlock()
         self.instance.getStateInformation(block)
-        # TODO: Does this work in CPython?
-        array = _rawffi.Array("c").fromaddress(block.getData().itemaddress(0), block.getSize())
-        print(os.getcwd())
+        # `memoryview` for PyPy.
+        array = np.frombuffer(memoryview(block.getData()), dtype=np.uint8, count=block.getSize())
         with open(path, "wb") as f:
             f.write(array)
 
@@ -216,6 +214,8 @@ class Plugin:
         self.instrument = instrument
 
         plugins = juce.OwnedArray(juce.PluginDescription)()
+        # Need to keep this around so it doesn't get destroyed...
+        self.plugins = plugins
         # Unlike `scanAndAddFile`, this function tries to determine the current plugin format for us.
         pluginList.scanAndAddDragAndDroppedFiles(pluginManager, juce.StringArray(juce.String(path)), plugins)
         self.plugin = plugins[0]
