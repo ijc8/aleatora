@@ -120,6 +120,13 @@ def AudioStream_record(self, key=None, redo=False):
 
 Stream.record = AudioStream_record
 
+def pan(stream, pos):
+    if isinstance(pos, collections.abc.Iterable):
+        return stream.map(lambda x, pos: frame(x * (1 - pos), x * pos), pos)
+    return stream.map(lambda x: frame(x * (1 - pos), x * pos))
+
+Stream.pan = pan
+
 # Stream-controlled resampler. Think varispeed.
 @stream
 def resample(stream, advance_stream):
@@ -140,12 +147,6 @@ def resample(stream, advance_stream):
                 return e.value
             pos -= 1
         yield sample + (next_sample - sample) * pos
-
-def pan(stream, pos):
-    return stream.map(lambda x: frame(x * (1 - pos), x * pos))
-
-def modpan(stream, pos_stream):
-    return stream.map(lambda x, pos: frame(x * (1 - pos), x * pos), pos_stream)
 
 silence = const(0)
 ones = const(1)
