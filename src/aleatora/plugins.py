@@ -1,31 +1,31 @@
+import atexit
 import collections
 import os
-import sys
 import threading
 
 import cppyy
 import numpy as np
-from popsicle import juce, juce_audio_processors
+from popsicle import START_JUCE_APPLICATION, juce, juce_audio_processors
 
 from .streams import SAMPLE_RATE, stream, Stream
-
-pluginManager = juce.AudioPluginFormatManager()
-pluginManager.addDefaultFormats()
-pluginList = juce.KnownPluginList()
 
 # Inline C++: define an application to wrap the plugin UI.
 # Could do this in Python, but overriding C++ virtuals in Python subclasses is broken in PyPy.
 # See https://bitbucket.org/wlav/cppyy/issues/80/override-virtual-function-in-python-failed
 cppyy.cppdef("""
+#include "Python.h"
 namespace popsicle {
 
 class WrapperWindow : public juce::DocumentWindow {
 public:
-    juce::Component *component;
+    PyObject *callback;
 
-    WrapperWindow(juce::Component *component)
+    // Would use a function pointer or std::function here,
+    // but cppyy doesn't yet support that conversion in PyPy.
+    WrapperWindow(juce::AudioPluginInstance *instance, PyObject *callback)
     : juce::DocumentWindow(juce::JUCEApplication::getInstance()->getApplicationName(), juce::Colours::black, juce::DocumentWindow::allButtons)
-    , component(component) {
+    , callback(callback) {
+        juce::Component *component = instance->createEditor();
         setUsingNativeTitleBar(true);
         setResizable(true, true);
         setContentNonOwned(component, true);
@@ -34,19 +34,20 @@ public:
     }
 
     void closeButtonPressed() {
-        setVisible(false);
         removeFromDesktop();
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        PyObject_CallObject(callback, nullptr);
     }
 };
 
 class WrapperApplication : public juce::JUCEApplication {
 public:
-    WrapperWindow window;
+    juce::OwnedArray<WrapperWindow> windows;
+    juce::AudioPluginFormatManager pluginManager;
+    juce::KnownPluginList pluginList;
 
-    WrapperApplication(juce::Component *component): window(component) {}
-
-    void initialise(const juce::String& commandLine) override {}
+    void initialise(const juce::String& commandLine) override {
+        pluginManager.addDefaultFormats();
+    }
  
     void shutdown() override {}
 
@@ -59,43 +60,56 @@ public:
     }
 };
 
+class WindowArguments {
+public:
+    juce::AudioPluginInstance *instance;
+    PyObject *callback;
+
+    WindowArguments(juce::AudioPluginInstance *instance, PyObject *callback)
+    : instance(instance), callback(callback) {}
+};
+
+WrapperWindow *createWindow(void *raw_args) {
+    WindowArguments &args = *((WindowArguments *)raw_args);
+    return ((WrapperApplication *)juce::JUCEApplication::getInstance())->windows.add(new WrapperWindow(args.instance, args.callback));
+}
+
 } // namespace popsicle
 """)
 
-from cppyy.gbl.popsicle import WrapperApplication
+from cppyy.gbl.popsicle import WrapperApplication, WindowArguments, createWindow
+
+# TODO: It appears that at least some of the time, this thread is terminated before cleanup() executes, which is unfortunate.
+juceThread = threading.Thread(target=lambda: START_JUCE_APPLICATION(WrapperApplication), daemon=True)
+juceThread.start()
+
+@atexit.register
+def cleanup():
+    juce.JUCEApplication.getInstance().systemRequestedQuit()
 
 class PluginEditor:
     def __init__(self, instance):
         self.instance = instance
         self.closed = threading.Event()
+        self.window = None
 
-    def run_loop(self):
-        manager = juce.MessageManager.getInstance()
-        # manager.setCurrentThreadAsMessageThread()
-        manager.runDispatchLoop()
-        # juce.shutdownJuce_GUI()
+    def on_close(self):
         self.closed.set()
+        juce.JUCEApplication.getInstance().windows.removeObject(self.window)
+        self.window = None
 
     def open(self):
-        juce.initialiseJuce_GUI()
-        if sys.platform in ["win32", "cygwin"]:
-            juce.Process.setCurrentModuleInstanceHandle()
-        elif sys.platform in ["darwin"]:
-            juce.initialiseNSApplication()
-
+        self.closed.clear()
         # Dexed changes the process's working directory when it sets up its editor.
         # So we back it up here and reset it below.
         dir = os.getcwd()
-        component = self.instance.createEditor()
-        self.application = WrapperApplication(component)
+        mm = juce.MessageManager.getInstance()
+        args = WindowArguments(self.instance, self.on_close)
+        self.window = mm.callFunctionOnMessageThread(createWindow, args)
         os.chdir(dir)
-        self.application.initialiseApp()
-
-        self.thread = threading.Thread(target=self.run_loop)
-        self.thread.start()
     
     def close(self):
-        self.application.window.closeButtonPressed()
+        self.window.closeButtonPressed()
 
     def wait(self):
         self.closed.wait()
@@ -115,6 +129,7 @@ class PluginInstance(Stream):
         # We make a copy here, because `createPluginInstance` apparently mutates its argument
         # such that it cannot be used again to make another instance.
         plugin = juce.PluginDescription(plugin)
+        pluginManager = juce.JUCEApplication.getInstance().pluginManager
         self.instance = pluginManager.createPluginInstance(plugin, sample_rate, block_size, error)
         # Set up UI class. Editor is not actually created until user calls `ui.open()`.
         self.ui = PluginEditor(self.instance)
@@ -217,7 +232,8 @@ class Plugin:
         # Need to keep this around so it doesn't get destroyed...
         self.plugins = plugins
         # Unlike `scanAndAddFile`, this function tries to determine the current plugin format for us.
-        pluginList.scanAndAddDragAndDroppedFiles(pluginManager, juce.StringArray(juce.String(path)), plugins)
+        app = juce.JUCEApplication.getInstance()
+        app.pluginList.scanAndAddDragAndDroppedFiles(app.pluginManager, juce.StringArray(juce.String(path)), plugins)
         self.plugin = plugins[0]
     
     # TODO: When PyPy 3.8's comes out, make `self` and `stream` positional-only to avoid conflict with plugin params.
