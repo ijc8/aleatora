@@ -26,6 +26,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 # Dependencies for optional features
 speech = ["gtts", "streamp3~=0.1.7"]
 foxdot = ["FoxDotPatterns~=0.1.0"]
+plugins = ["popsicle~=0.8.0"]
 
 setuptools.setup(
     name="aleatora",
@@ -64,6 +65,7 @@ setuptools.setup(
     extras_require={
         "speech": speech,
         "foxdot": foxdot,
-        "all": speech + foxdot,
+        "plugins": plugins,
+        "all": speech + foxdot + plugins,
     }
 )

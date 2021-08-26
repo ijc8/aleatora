@@ -3,87 +3,103 @@ import collections
 import os
 import threading
 
-import cppyy
 import numpy as np
-from popsicle import START_JUCE_APPLICATION, juce, juce_audio_processors
 
 from .streams import SAMPLE_RATE, stream, Stream
 
-# Inline C++: define an application to wrap the plugin UI.
-# Could do this in Python, but overriding C++ virtuals in Python subclasses is broken in PyPy.
-# See https://bitbucket.org/wlav/cppyy/issues/80/override-virtual-function-in-python-failed
-cppyy.cppdef("""
-#include "Python.h"
-namespace popsicle {
+juceThread = None
 
-class WrapperWindow : public juce::DocumentWindow {
-public:
-    PyObject *callback;
+def setup():
+    try:
+        _setup()
+    except ImportError as exc:
+        raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
 
-    // Would use a function pointer or std::function here,
-    // but cppyy doesn't yet support that conversion in PyPy.
-    WrapperWindow(juce::AudioPluginInstance *instance, PyObject *callback)
-    : juce::DocumentWindow(juce::JUCEApplication::getInstance()->getApplicationName(), juce::Colours::black, juce::DocumentWindow::allButtons)
-    , callback(callback) {
-        juce::Component *component = instance->createEditor();
-        setUsingNativeTitleBar(true);
-        setResizable(true, true);
-        setContentNonOwned(component, true);
-        centreWithSize(component->getWidth(), component->getHeight());
-        setVisible(true);
+def _setup():
+    global juce
+    from popsicle import START_JUCE_APPLICATION, juce, juce_audio_processors
+    import cppyy
+    # Inline C++: define an application to wrap plugin UIs.
+    # Could do this in Python, but overriding C++ virtuals in Python subclasses is broken in PyPy.
+    # See https://bitbucket.org/wlav/cppyy/issues/80/override-virtual-function-in-python-failed
+    cppyy.cppdef("""
+    #include "Python.h"
+    namespace popsicle {
+
+    class WrapperWindow : public juce::DocumentWindow {
+    public:
+        PyObject *callback;
+
+        // Would use a function pointer or std::function here,
+        // but cppyy doesn't yet support that conversion in PyPy.
+        WrapperWindow(juce::AudioPluginInstance *instance, PyObject *callback)
+        : juce::DocumentWindow(juce::JUCEApplication::getInstance()->getApplicationName(), juce::Colours::black, juce::DocumentWindow::allButtons)
+        , callback(callback) {
+            juce::Component *component = instance->createEditor();
+            setUsingNativeTitleBar(true);
+            setResizable(true, true);
+            setContentNonOwned(component, true);
+            centreWithSize(component->getWidth(), component->getHeight());
+            setVisible(true);
+        }
+
+        void closeButtonPressed() {
+            removeFromDesktop();
+            PyObject_CallObject(callback, nullptr);
+        }
+    };
+
+    class WrapperApplication : public juce::JUCEApplication {
+    public:
+        juce::OwnedArray<WrapperWindow> windows;
+        juce::AudioPluginFormatManager pluginManager;
+        juce::KnownPluginList pluginList;
+
+        void initialise(const juce::String& commandLine) override {
+            pluginManager.addDefaultFormats();
+        }
+    
+        void shutdown() override {}
+
+        const juce::String getApplicationName() override {
+            return "test";
+        }
+
+        const juce::String getApplicationVersion() override {
+            return "1.0";
+        }
+    };
+
+    class WindowArguments {
+    public:
+        juce::AudioPluginInstance *instance;
+        PyObject *callback;
+
+        WindowArguments(juce::AudioPluginInstance *instance, PyObject *callback)
+        : instance(instance), callback(callback) {}
+    };
+
+    WrapperWindow *createWindow(void *raw_args) {
+        WindowArguments &args = *((WindowArguments *)raw_args);
+        return ((WrapperApplication *)juce::JUCEApplication::getInstance())->windows.add(new WrapperWindow(args.instance, args.callback));
     }
 
-    void closeButtonPressed() {
-        removeFromDesktop();
-        PyObject_CallObject(callback, nullptr);
-    }
-};
+    } // namespace popsicle
+    """)
 
-class WrapperApplication : public juce::JUCEApplication {
-public:
-    juce::OwnedArray<WrapperWindow> windows;
-    juce::AudioPluginFormatManager pluginManager;
-    juce::KnownPluginList pluginList;
+    global WrapperApplication, WindowArguments, createWindow
+    from cppyy.gbl.popsicle import WrapperApplication, WindowArguments, createWindow
 
-    void initialise(const juce::String& commandLine) override {
-        pluginManager.addDefaultFormats();
-    }
- 
-    void shutdown() override {}
+    global juceThread
+    # TODO: It appears that at least some of the time, this thread is terminated before cleanup() executes, which is unfortunate.
+    juceThread = threading.Thread(target=lambda: START_JUCE_APPLICATION(WrapperApplication), daemon=True)
+    juceThread.start()
+    atexit.register(cleanup)
+    # Avoid race condition in which plugins try to initialize before message loop has started.
+    app = juce.JUCEApplication.getInstance()
+    while app == None or app.isInitialising():
+        app = juce.JUCEApplication.getInstance()
 
-    const juce::String getApplicationName() override {
-        return "test";
-    }
-
-    const juce::String getApplicationVersion() override {
-        return "1.0";
-    }
-};
-
-class WindowArguments {
-public:
-    juce::AudioPluginInstance *instance;
-    PyObject *callback;
-
-    WindowArguments(juce::AudioPluginInstance *instance, PyObject *callback)
-    : instance(instance), callback(callback) {}
-};
-
-WrapperWindow *createWindow(void *raw_args) {
-    WindowArguments &args = *((WindowArguments *)raw_args);
-    return ((WrapperApplication *)juce::JUCEApplication::getInstance())->windows.add(new WrapperWindow(args.instance, args.callback));
-}
-
-} // namespace popsicle
-""")
-
-from cppyy.gbl.popsicle import WrapperApplication, WindowArguments, createWindow
-
-# TODO: It appears that at least some of the time, this thread is terminated before cleanup() executes, which is unfortunate.
-juceThread = threading.Thread(target=lambda: START_JUCE_APPLICATION(WrapperApplication), daemon=True)
-juceThread.start()
-
-@atexit.register
 def cleanup():
     juce.JUCEApplication.getInstance().systemRequestedQuit()
 
@@ -177,7 +193,7 @@ class PluginInstance(Stream):
         else:
             result = self.run_with_samples()
         if self.effect_streams:
-            return result.zip(*self.effect_streams).map(lambda t: t[0])
+            result = result.zip(*self.effect_streams).map(lambda t: t[0])
         return iter(result)
 
     @stream
@@ -241,7 +257,11 @@ class Plugin:
         return PluginInstance(self.plugin, stream, plugin_params, self.sample_rate, self.block_size, self.volume_threshold, self.instrument)
 
 def load(path, block_size=512, sample_rate=SAMPLE_RATE, volume_threshold=2e-6, instrument=False):
+    if not juceThread:
+        setup()
     return Plugin(path, block_size, sample_rate, volume_threshold, instrument)
 
 def load_instrument(path, block_size=512, sample_rate=SAMPLE_RATE, volume_threshold=2e-6):
+    if not juceThread:
+        setup()
     return Plugin(path, block_size, sample_rate, volume_threshold, True)
