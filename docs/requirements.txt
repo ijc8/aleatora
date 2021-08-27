@@ -1,3 +1,2 @@
 Sphinx==4.1.1
-furo==2021.7.5b38
-
+pydata-sphinx-theme==0.6.3

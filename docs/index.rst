@@ -21,7 +21,7 @@ Design
 ------
 
    | "It is better to have 100 functions operate on one data structure than 10 functions on 10 data structures."
-   | --- `Alan Perlis <http://pu.inf.uni-tuebingen.de/users/klaeren/epigrams.html>`_
+   |  --- `Alan Perlis <http://pu.inf.uni-tuebingen.de/users/klaeren/epigrams.html>`_
 
 Aleatora is implemented as a Python library, built around lazy, effectful, replayable streams.
 
