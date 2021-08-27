@@ -68,7 +68,7 @@ To ensure installation succeeded and that you can get sound out, try playing a s
 Status
 ------
 
-Aleatora is early-stage software. There is no documentation as yet, beyond this page and code comments, but this will soon change!
+Aleatora is early-stage software. There is some documentation (see the :ref:`modindex`), but the docs (like the project itself) are still a work in progress. Please try Aleatora, submit issues when you find broken things (or have questions, feature requests, etc.), but don't rely on it for live production systems or installations.
 
 
 Indices and tables
