@@ -27,11 +27,11 @@ Aleatora is implemented as a Python library, built around lazy, effectful, repla
 
 What does that mean? Like most audio synthesis frameworks, Aleatora lets you build up complex sounds by connecting generators in an audio graph (function composition + parallel composition). Unlike most, it also lets you build things up *horizontally*: streams can be composed sequentially, so the audio graph can *change over time* on its own (based on the computation described in the graph itself).
 
-In other words: there are three meanings of the word "add" in music: "add a verse", as in sequential composition; "add a harmony line", as in parallel composition; and "add some reverb", as in function composition. Aleatora supports all three of these meanings in its core abstraction, and all three can be nested interopably.
+In other words: there are three common meanings of the word "add" in music: "add a verse", as in sequential composition; "add a harmony line", as in parallel composition; and "add some reverb", as in function composition. Aleatora supports all three of these meanings in its core abstraction, and all three can be nested interopably.
 
-Additionally, streams may contain any kind of data type, not just samples. So you can use the same basic abstraction, and all the operations that it offers, to work with strings, events, arrays, MIDI data, etc., just as well as with individual audio samples.
+Additionally, streams may contain any kind of data type, not just samples. So you can use the same basic abstraction, and all the operations that it offers, to work with individual samples, multichannel frames, strings, events, arrays, MIDI data, etc., just as well as with individual audio samples.
 
-Finally, streams are first-class values. You can store them in variables, pass them around, write functions that transform them, and so on. This allows you to build up compositions functionally. Rather than saying, "it's time T, so make change X to the audio graph! then make change Y! then make change Z!", you can say "my composition consists of stream A, sliced at time T, followed by stream B".
+Finally, streams are first-class values. You can store them in variables, pass them around, write functions that transform them, and so on. This allows you to build up compositions functionally. Rather than saying, "it's time T, so make change X to the audio graph! then make change Y! then make change Z!", you can say "my composition consists of stream A, sliced at time T, followed by stream B". In this simple case, the distinction may seem trivial, but the latter also allows you to express things that would be difficult or impossible without compositions-as-values; for example, you can say "my composition consists of stream A, but `wobbled`" (run at a time-varying rate, `without` being rendered to a buffer ahead of time).
 
 Features
 --------
@@ -45,14 +45,22 @@ Features
   - Aleatora is a library, not a new language: benefit from the verdant Python ecosystem.
 
 - Basic file format support: load from and save to WAV and MIDI.
+- Multichannel support:
+
+  - Streams may yield frames containing multiple samples (one per channel).
+  - Operator overloading to allow mixing with mono streams or multichannel streams of the same size.
+
 - Support for arbitrary mixing of sample rates.
 - Networking integration: use TCP, UDP, OSC streams in your composition.
 - (Optional) Quickly express musical ideas using `FoxDot <https://foxdot.org/docs/pattern-basics/>`_ patterns and strings.
 - (Optional) TTS support via `Festival <http://festvox.org/festival/>`_ and `gTTS <https://pypi.org/project/gTTS/>`_.
 - (Optional, Experimental) Support for plugins via `popsicle <https://github.com/kunitoki/popsicle>`_: load and run VST, AU, LADSPA plugins.
   
-Installation
+Getting Started
 ------------
+
+Installation
+############
 
 .. code-block:: bash
 
@@ -64,6 +72,11 @@ To ensure installation succeeded and that you can get sound out, try playing a s
 
 >>> import aleatora as alt
 >>> alt.play(alt.osc(440))
+
+Tutorial
+########
+
+TODO!
 
 Status
 ------
