@@ -1,5 +1,6 @@
-from .streams import SAMPLE_RATE, stream
+from .streams import maybe_const, SAMPLE_RATE, stream
 
+import collections
 import math
 
 
@@ -8,10 +9,10 @@ import math
 # Seems unstable at 1/2 of Nyquist (1/4 of sampling rate)
 
 @stream
-def svf(stream, f_stream, q):
+def svf(stream, freq, q):
     assert(q >= 0.5)
     low = band = 0
-    for x, f in zip(stream, f_stream):
+    for x, f in zip(stream, maybe_const(freq)):
         f1 = 2*math.sin(math.pi * f / SAMPLE_RATE)
         # Faster approximation:
         # f1 = 2*math.pi*f/SAMPLE_RATE

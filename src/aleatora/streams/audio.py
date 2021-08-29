@@ -129,7 +129,7 @@ Stream.pan = pan
 
 # Stream-controlled resampler. Think varispeed.
 @stream
-def resample(stream, advance_stream):
+def resample(stream, rate):
     it = iter(stream)
     pos = 0
     sample = 0
@@ -137,7 +137,7 @@ def resample(stream, advance_stream):
         next_sample = next(it)
     except StopIteration as e:
         return e.value
-    for advance in advance_stream:
+    for advance in maybe_const(rate):
         pos += advance
         while pos > 1:
             sample = next_sample
@@ -147,6 +147,8 @@ def resample(stream, advance_stream):
                 return e.value
             pos -= 1
         yield sample + (next_sample - sample) * pos
+
+Stream.resample = resample
 
 silence = const(0)
 ones = const(1)
@@ -299,7 +301,7 @@ def normalize(strm):
     return stream(a / peak)
 
 # Analagous to DAW timeline; takes a bunch of streams and their start times, and arranges them in a reasonably efficient way.
-def arrange(items):
+def arrange(items, background=silence):
     if not items:
         return empty
     items = sorted(items, key=lambda item: item[0], reverse=True)
@@ -310,7 +312,7 @@ def arrange(items):
         # Sometimes I really wish Python had `let`...
         out = (lambda start, stream, prev: (lambda r: (r + stream)[:start].bind(prev)))(prev_start_time - start_time, stream, out)
         prev_start_time = start_time
-    return silence[:last_start_time][:prev_start_time].bind(out)
+    return background[:last_start_time][:prev_start_time].bind(out)
 
 # More new stuff (3/2):
 def cons(item, stream):

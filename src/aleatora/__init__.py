@@ -5,7 +5,7 @@ __version__ = '0.2.0a0'
 from .audio import input_stream, play, query_devices, run, setup, volume
 from .chord import chord
 try:
-    from .fauxdot import beat, P, PRand, tune, Scale, Root
+    from .fauxdot import beat, P, PEuclid, PRand, tune, Scale, Root
 except ImportError as err:
     _err = err  # Necessary because exception is deleted when the handler ends.
     def optional_dependency_help(*args, **kwargs):

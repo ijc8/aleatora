@@ -124,7 +124,9 @@ def poly(monophonic_instrument, persist_internal=False):
         return substream
 
     @stream
-    def polyphonic_instrument(stream, substreams={}, voices={}, **kwargs):
+    def polyphonic_instrument(stream, **kwargs):
+        substreams = {}
+        voices = []
         for events in stream:
             acc = 0
             # Clear old messages:
@@ -140,7 +142,7 @@ def poly(monophonic_instrument, persist_internal=False):
                         substream = make_event_substream()
                         substream.events = (event,)
                         substreams[event.note] = substream
-                        voices[event.note] = iter(monophonic_instrument(substream, **kwargs))
+                        voices.append(iter(monophonic_instrument(substream, **kwargs)))
                 elif event.type == 'note_off':
                     if event.note in substreams:
                         if persist_internal:
@@ -149,17 +151,12 @@ def poly(monophonic_instrument, persist_internal=False):
                             substreams[event.note].last_event = event
                             del substreams[event.note]
 
-            dead_list = []
-            for note, voice in voices.items():
+            for i in range(len(voices) - 1, -1, -1):
                 try:
-                    sample = next(voice)
+                    sample = next(voices[i])
                     acc += sample
                 except StopIteration:
-                    dead_list.append(note)
-            for note in dead_list:
-                del voices[note]
-                if note in substreams:
-                    del substreams[note]
+                    del voices[i]
             yield acc
     return polyphonic_instrument
 

@@ -7,8 +7,8 @@ from . import wav
 
 try:
     from FoxDotPatterns import (
-        GeneratorPattern, P, Pattern, PGroup, PGroupPrime, PGroupPlus, PGroupOr, PRand, ParsePlayString,
-        Root, Scale, get_freq_and_midi, Samples, nil
+        GeneratorPattern, P, Pattern, PEuclid, PGroup, PGroupPrime, PGroupPlus, PGroupOr, PRand,
+        ParsePlayString, Root, Scale, get_freq_and_midi, Samples, nil
     )
 except ImportError as exc:
     raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
