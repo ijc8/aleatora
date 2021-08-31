@@ -21,7 +21,7 @@ import mido
 
 from aleatora.streams.core import FunctionStream
 
-from .streams import const, events_in_time, m2f, osc, repeat, SAMPLE_RATE, stream
+from .streams import const, events_in_time, m2f, osc, ramp, repeat, SAMPLE_RATE, stream
 
 get_input_names = mido.get_input_names
 
@@ -175,3 +175,33 @@ def seq_to_events(sequence, bpm=60):
         time += duration * 60 / bpm * SAMPLE_RATE
         events.append((int(time) - 1, Message(type='note_off')))
     return events_in_time(events)
+
+
+def sampler(mapping, fade=0.01):
+    "Instrument that maps MIDI pitches to streams. Resamples to account for octave jumps."
+    def get_sample(pitch, velocity):
+        gain = velocity / 127
+        if pitch in mapping:
+            return mapping[pitch] * gain
+        # No such pitch in the mapping; see if there's one in the same pitch class (offset by octaves).
+        for m, s in mapping.items():
+            if (pitch - m) % 12 == 0:
+                return s.resample(2**((pitch - m)/12)) * gain
+
+    @poly
+    @stream
+    def instrument(stream):
+        it = iter([])
+        for events in stream:
+            if events:
+                if events[-1].type == 'note_on':
+                    it = iter(get_sample(events[-1].note, events[-1].velocity) * ramp(0, 1, fade, True))
+                elif events[-1].type == 'note_off':
+                    yield from ramp(1, 0, fade) * it
+                    return
+            try:
+                yield next(it)
+            except StopIteration:
+                return
+        yield from it
+    return instrument
