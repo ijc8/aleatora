@@ -70,13 +70,13 @@ Installation
 
 To ensure installation succeeded and that you can get sound out, try playing a sine tone:
 
->>> import aleatora as alt
->>> alt.play(alt.osc(440))
+>>> from aleatora import *
+>>> play(osc(440))
 
 Tutorial
 ########
 
-TODO!
+**Coming soon!** In the meantime, check out `this quick demo <https://www.youtube.com/watch?v=F2V-n4nsLgM&t=216s>`_ recorded for Audio Mostly '21.
 
 Status
 ------
@@ -86,7 +86,40 @@ Aleatora is early-stage software. There is some documentation (see the :ref:`mod
 Changes from version 0.1.0
 --------------------------
 
-TODO!
+The most significant change between Aleatora 0.1.0 and 0.2.0 is in the conception and implementation of streams. Aleatora 0.1.0 implemented streams in the sense of `SRFI-41 <https://srfi.schemers.org/srfi-41/srfi-41.html>`_: a lazy, recursive data structure. A stream was a function (with no arguments - a `thunk <https://en.wikipedia.org/wiki/Thunk>`_) that returned either a tuple ``(value: Any, rest_of_stream: Stream)`` or an instance of ``Return(value: any)`` indicating the end of the stream.
+
+This formulation is elegant, and can potentially allow replayability from any point: as long as you retain a reference to a given point in the stream, you can replay the rest of the stream from that point. (And since Aleatora's streams are intentionally unmemoized, it may take a different path and re-run side effects.)
+
+However, this implementation had three significant drawbacks:
+
+- Considerable overhead; regenerated the entire "stream graph" for every single computed value, even if the user didn't need to save state for later replay, and added layers of indirection while traversing streams.
+- Required users to write in an unwieldy style heavily featuring closures and deferred recursion in order to define new "raw" streams. (Relatedly, entailed strange distinction between raw and compound streams.)
+- Tricky semantic and performance questions about saving state: if a stream uses a mutable structure in its computation, such as a buffer for a delay effect, should that get saved? (Prohibitively expensive if it's always saved; unexpected behavior if it's not; no good interface for the user to specify what to save without opening the black box.)
+
+Aleatora 0.2.0 has moved to a new implementation of streams. Streams are still lazy sequences of values, but they are now Python iterables: a stream produces an iterator which is used to force subsequent values, but, unlike before, the iterator state may not necessarily be copyable. This sheds the semi-supported feature of replayability from an arbitrary point, but it preserves replayability from the `beginning` of streams and avoids the drawbacks mentioned above. Raw streams are now much easier to read and write, as generator functions can be easily made into streams, allowing the use of Python's ``yield`` and ``yield from``. In short, this change improves performance and integration with the host language, at the expense of a niche and poorly-defined feature.
+
+For example, here's how this affected the implementation of the core method ``Stream.filter()``:
+
++--------------------------------------------------------+--------------------------------+
+|                                                        |                                |
+|.. code-block::                                         |.. code-block::                 |
+|                                                        |                                |
+|  # Before: Aleatora 0.1.0                              |  # After: Aleatora 0.2.0       |
+|  @raw_stream                                           |  @stream                       |
+|  def filter(self, predicate):                          |  def filter(self, predicate):  |
+|      def closure():                                    |      for x in self:            |
+|          stream = self                                 |         if predicate(x):       |
+|          while True:                                   |               yield x          |
+|              result = stream()                         |                                |
+|              if isinstance(result, Return):            |                                |
+|                  return result                         |                                |
+|              value, stream = result                    |                                |
+|              if not predicate(value):                  |                                |
+|                  continue                              |                                |
+|              return (value, stream.filter(predicate))  |                                |
+|      return closure                                    |                                |
+|                                                        |                                |
++-------------------------+------------------------------+--------------------------------+
 
 Indices and tables
 ==================
