@@ -28,10 +28,10 @@ def profile_stream(entry, stream):
             start = time.perf_counter()
             value = next(it)
             entry[2] += time.perf_counter() - start
-        except StopIteration:
+        except StopIteration as e:
             entry[2] += time.perf_counter() - start
             entry[1] += 1
-            raise
+            return e.value
         yield value
 
 
