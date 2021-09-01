@@ -1,3 +1,5 @@
+**NOTE:** This branch marks the version of Aleatora presented at Audio Mostly '21 ([video](https://www.youtube.com/watch?v=F2V-n4nsLgM)). You can find the latest version of Aleatora [here](https://github.com/ijc8/aleatora) and the docs [here](https://aleatora.readthedocs.io).
+
 # Aleatora
 
 Compose music with streams
@@ -18,8 +20,8 @@ Additionally, streams may contain any kind of data type, not just samples. So yo
 
 To ensure installation succeeded and that you can get sound out, try playing a sine tone:
 ```python
-import aleatora as alt
-alt.play(alt.osc(440))
+from aleatora import *
+play(osc(440))
 ```
 
 ## Status
