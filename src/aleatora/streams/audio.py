@@ -460,3 +460,21 @@ def record(key=None, stream=None, redo=False):
 @stream
 def splitter(stream, receiver):
     return lambda: receiver(stream.memoize())()
+
+
+# Functions for generating compositions from directly from waveform functions.
+# Examples:
+#     bytebeat(lambda t: ((t >> 10) & 42) * t, 8000)
+#     kilobeat(lambda t: sin(2*math.pi*300*t))
+
+def floatbeat(fn):
+    return count().map(fn)
+
+def bytebeat(fn, sample_rate=None):
+    stream = floatbeat(lambda t: (fn(t) % 255) / 255.0 * 2 - 1)
+    if sample_rate is not None:
+        stream = stream.resample(sample_rate / SAMPLE_RATE)
+    return stream
+
+def kilobeat(fn):
+    return floatbeat(lambda t: fn(t / SAMPLE_RATE))
