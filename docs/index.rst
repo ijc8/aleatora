@@ -1,17 +1,14 @@
-.. Aleatora documentation master file, created by
-   sphinx-quickstart on Thu Jul 22 22:19:21 2021.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
-Welcome to Aleatora's documentation!
-====================================
+.. figure:: _static/banner.png
+    :alt: Aleatora: composing with streams
+    :align: center
+    :target: https://aleatora.readthedocs.io/
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-Motivation
-----------
+Welcome to Aleatora!
+--------------------
 
 Aleatora is a music composition framework: it is designed to help you write programs that generate organized sound (or MIDI data, OSC messages, video, or whatever other time-series data you like). To use Aleatora, you can write a program that builds up a composition, and then play the composition live, or render it to an audio file (assuming it is finite!). If the composition is deterministic, finite, and does not rely on external input, a single render may suffice to represent it. Otherwise, the composition may go on forever or change every time it is played (hence the name).
 

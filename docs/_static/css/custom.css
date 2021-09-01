@@ -1,0 +1,7 @@
+:root {
+    --pst-header-height: 0;
+}
+
+.navbar {
+    display: none;
+}
