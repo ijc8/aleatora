@@ -4,9 +4,8 @@ import subprocess
 import tempfile
 
 import numpy as np
-from scipy import signal
 
-from .streams import SAMPLE_RATE, stream
+from .streams import SAMPLE_RATE, Stream
 from . import wav
 
 ## Google TTS
@@ -42,7 +41,7 @@ def speech(text, lang='en', slow=False, tld='com', filename=None):
     decoder = MP3Decoder(mp3)
     assert(decoder.num_channels == 1)
     data = np.concatenate([np.frombuffer(chunk, dtype=np.int16).copy() for chunk in decoder]).astype(np.float) / np.iinfo(np.int16).max
-    return stream(signal.resample(data, int(SAMPLE_RATE / decoder.sample_rate * len(data))))
+    return Stream.resample(data.tolist(), decoder.sample_rate / SAMPLE_RATE).freeze()
 
 
 ## Festival singing mode

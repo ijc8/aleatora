@@ -59,7 +59,6 @@ setuptools.setup(
         "mido",
         "numpy",
         "oscpy",
-        "scipy",
         "sounddevice",
     ],
     extras_require={

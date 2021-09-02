@@ -1,7 +1,6 @@
 from . import streams
 
 import numpy as np
-from scipy import signal
 
 import time
 import wave
@@ -24,7 +23,12 @@ def load_array(filename, resample=False):
     else:
         raise NotImplementedError(f"{width*8}-bit wave files not supported")
     if resample and streams.SAMPLE_RATE != w.getframerate():
-        data = signal.resample(data, int(streams.SAMPLE_RATE / sample_rate * len(data)))
+        new_data = np.empty((int(streams.SAMPLE_RATE / sample_rate * len(data)), data.shape[1]))
+        x = np.arange(len(data)) / sample_rate
+        new_x = np.arange(len(new_data)) / streams.SAMPLE_RATE
+        for i in range(data.shape[1]):
+            new_data[:, i] = np.interp(new_x, x, data[:, i])
+        data = new_data
     return data
 
 def load(filename, resample=False, multichannel=False):
