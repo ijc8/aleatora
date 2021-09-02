@@ -8,9 +8,18 @@ Additionally, streams may contain any kind of data type, not just samples. So yo
 
 ## Installation
 
-    virtualenv venv -p pypy3  # or python3, if you're okay with more underruns
+First, set up the environment:
+
+    virtualenv venv -p python3  # or pypy3 for better performance
     source venv/bin/activate
-    pip install aleatora  # for optional features, append a bracketed list like `[speech,foxdot]` (or `[all]`)
+
+Then, get the stable version of Aleatora:
+
+    pip install aleatora  # for optional features, append a list like `[speech,foxdot]` (or `[all]`)
+
+Or, get the latest version instead:
+
+    pip install git+https://github.com/ijc8/aleatora.git
 
 To ensure installation succeeded and that you can get sound out, try playing a sine tone:
 ```python

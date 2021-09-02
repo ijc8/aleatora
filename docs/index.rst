@@ -4,8 +4,8 @@
     :target: https://aleatora.readthedocs.io/
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+    :maxdepth: 2
+    :caption: Contents:
 
 Welcome to Aleatora!
 --------------------
@@ -17,8 +17,8 @@ In the grand computational-musical future, there will be a platform for easily d
 Design
 ------
 
-   | "It is better to have 100 functions operate on one data structure than 10 functions on 10 data structures."
-   |  --- `Alan Perlis <http://pu.inf.uni-tuebingen.de/users/klaeren/epigrams.html>`_
+    | "It is better to have 100 functions operate on one data structure than 10 functions on 10 data structures."
+    |  --- `Alan Perlis <http://pu.inf.uni-tuebingen.de/users/klaeren/epigrams.html>`_
 
 Aleatora is implemented as a Python library, built around lazy, effectful, replayable streams.
 
@@ -54,16 +54,29 @@ Features
 - (Optional, Experimental) Support for plugins via `popsicle <https://github.com/kunitoki/popsicle>`_: load and run VST, AU, LADSPA plugins.
   
 Getting Started
-------------
+---------------
 
 Installation
 ############
 
+First, set up the environment:
+
 .. code-block:: bash
 
-   virtualenv venv -p pypy3  # or python3, if you're okay with more underruns
-   source venv/bin/activate
-   pip install aleatora  # for optional features, append a bracketed list like [speech,foxdot] or [all]
+    virtualenv venv -p python3  # or pypy3 for better performance
+    source venv/bin/activate
+
+Then, get the stable version of Aleatora:
+
+.. code-block:: bash
+
+    pip install aleatora  # for optional features, append a list like [speech,foxdot] (or [all])
+
+Or, get the latest version instead:
+
+.. code-block:: bash
+
+    pip install git+https://github.com/ijc8/aleatora.git
 
 To ensure installation succeeded and that you can get sound out, try playing a sine tone:
 
