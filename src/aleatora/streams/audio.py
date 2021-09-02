@@ -260,7 +260,10 @@ def interp(stream):
         time += 1
         while time >= next_time:
             prev_time, prev_value = next_time, next_value
-            next_time, next_value = next(it)
+            try:
+                next_time, next_value = next(it)
+            except StopIteration as e:
+                return e.value
             next_time = convert_time(next_time)
         yield prev_value + (next_value - prev_value) * (time - prev_time)/(next_time - prev_time)
 

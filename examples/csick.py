@@ -37,9 +37,9 @@ depth_points = [
 
 mod_freq = freeze(interp(freq_points))
 mod_depth = freeze(interp(depth_points))
-low_rate = 1 + fm_osc(mod_freq) * mod_depth
-mid_rate = 2 + fm_osc(mod_freq) * mod_depth
-high_rate = 3 + fm_osc(mod_freq) * mod_depth
+low_rate = 1 + osc(mod_freq) * mod_depth
+mid_rate = 2 + osc(mod_freq) * mod_depth
+high_rate = 3 + osc(mod_freq) * mod_depth
 
 low = resample(m, low_rate)
 mid = silence[:5.0] >> (resample(m, mid_rate[5.0:]) * basic_envelope(58.0 - 5.0))

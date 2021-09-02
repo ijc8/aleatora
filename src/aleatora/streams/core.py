@@ -111,7 +111,7 @@ class Stream(collections.abc.Iterable):
             yield x
 
     def zip(self, *others):
-        return Stream(zip(self, *others))
+        return FunctionStream(lambda: zip(self, *others))
 
     @stream
     def filter(self, predicate):
@@ -294,3 +294,6 @@ def log(print_period=1):
         print("Log:", i)
         for _ in range(print_period):
             yield
+
+def defer(stream_fn):
+    return FunctionStream(lambda: iter(stream_fn()))
