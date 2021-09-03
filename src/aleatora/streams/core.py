@@ -43,6 +43,11 @@ class Stream(collections.abc.Iterable):
     
     def __rrshift__(self, other):
         return ConcatStream((other, self))
+    
+    # `a | f` means stream `a` "piped into" a function that accepts a stream `f`: function composition, as in `f(a)`.
+    # If `f` also returns a stream, then the composition can be chained, as in `a | f | g`, which equals `g(f(a))`.
+    def __or__(self, other):
+        return other(self)
 
     # The other operators behave differently with streams and other types.
     # If `other` is iterable, these operators will perform the operation element-wise along the stream and the other iterable.
