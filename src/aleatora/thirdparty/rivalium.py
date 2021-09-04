@@ -55,20 +55,23 @@ def fetch(url):
 #     Then, takes last-played segment and asks for the following segments.
 
 @stream
-def recv_urls(stream_id):
-    "Returns stream of Rivalium segment URLs; random with short sequential runs."
+def recv_urls(stream_id, max_run_length=30):
+    "Returns endless stream of Rivalium segment URLs; random with sequential runs (up to `max_run_length` long)."
     while True:
-        chain_steps = random.randrange(1, 6)
+        run_length = random.randrange(1, max_run_length + 1)
         url = f"https://play.rivalium.com/api/{stream_id}/?start=random"
-        for _ in range(chain_steps):
+        while run_length > 0:
             with urllib.request.urlopen(url) as req:
                 segments = json.loads(req.read())
-            limit = random.randrange(1, len(segments))
-            for segment in segments[:limit]:
+            if not segments:
+                # Reached the end of the stream, can't get to `run_length`.
+                break
+            for segment in segments[:run_length]:
                 id = segment['segmentID']
                 url = segment['segmentURL']
                 yield url
             url = f"https://play.rivalium.com/api/{stream_id}/{id}"
+            run_length -= len(segments)
 
 def recv(stream_id):
     "Returns endless stream of samples from random Rivalium segments."
