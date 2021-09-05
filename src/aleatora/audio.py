@@ -5,9 +5,21 @@ import sounddevice as sd
 from .streams import audio, empty, frame, FunctionStream, Stream, peek
 
 
+def get_playback_stream(streams):
+    if len(streams) == 1:
+        # Peek ahead to determine the number of channels automatically.
+        sample, stream = peek(streams[0])
+        channels = getattr(sample, "__len__", lambda: 1)()
+    else:
+        # Passed multiple tracks; zip them together as channels.
+        stream = Stream.zip(*streams).map(frame)
+        channels = len(streams)
+    return stream, channels
+
 # Non-interactive version; blocking, cleans up and returns when the composition is finished.
-def run(composition, blocksize=0):
-    samples = iter(composition)
+def run(*streams, blocksize=0):
+    stream, channels = get_playback_stream(streams)
+    samples = iter(stream)
 
     def callback(outdata, frames, time, status):
         i = -1
@@ -16,7 +28,7 @@ def run(composition, blocksize=0):
         if i < frames - 1:
             raise sd.CallbackStop
 
-    with sd.OutputStream(channels=1, callback=callback, blocksize=blocksize) as stream:
+    with sd.OutputStream(channels=channels, callback=callback, blocksize=blocksize) as stream:
         audio.SAMPLE_RATE = stream.samplerate
         try:
             while stream.active:
@@ -126,14 +138,8 @@ def play(*streams, mix=False):
     if not streams:
         stream = empty
         channels = _channels
-    elif len(streams) == 1:
-        # Peek ahead to determine the number of channels automatically.
-        sample, stream = peek(streams[0])
-        channels = getattr(sample, "__len__", lambda: 1)()
     else:
-        # Passed multiple tracks; zip them together as channels.
-        stream = Stream.zip(*streams).map(frame)
-        channels = len(streams)
+        stream, channels = get_playback_stream(streams)
     
     if mix and _samples is not None:
         # Add another layer to playback without resetting the position of existing layers.
