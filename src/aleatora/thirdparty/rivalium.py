@@ -7,6 +7,9 @@ Example usage:
 >>> upload_stream, public_url, admin_url = rivalium.send(rand * 2 - 1)
 >>> play(upload_stream)
 """
+import array
+from datetime import datetime, timezone
+import io
 import json
 import tempfile
 import random
@@ -15,7 +18,7 @@ import urllib.request
 import numpy as np
 import pyogg
 
-from ..streams import SAMPLE_RATE, stream
+from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
 
 def opus_to_array(opus_file, resample=True):
     data = np.ctypeslib.as_array(opus_file.buffer, (opus_file.buffer_length // 2,)) / np.iinfo(np.int16).max
@@ -26,7 +29,7 @@ def opus_to_array(opus_file, resample=True):
         data = np.interp(new_x, x, data)
     return data
 
-def decodeOggOpus(blob):
+def decode_ogg_opus(blob):
     # HACK: pyogg does not supported decoding Ogg Opus data from memory, so we write to a temporary file.
     # (The underlying library, libopusfile, actually does via `op_open_memory`, so perhaps a PR is in order?)
     with tempfile.NamedTemporaryFile(mode='wb') as tmp:
@@ -36,8 +39,8 @@ def decodeOggOpus(blob):
         opus_file = pyogg.OpusFile(tmp.name)
     return stream(opus_to_array(opus_file).tolist())
 
-def fetch(url):
-    with urllib.request.urlopen(url) as req:
+def fetch(url, **kwargs):
+    with urllib.request.urlopen(urllib.request.Request(url, **kwargs)) as req:
         return req.read()
 
 # Notes:
@@ -61,8 +64,7 @@ def recv_urls(stream_id, max_run_length=30):
         run_length = random.randrange(1, max_run_length + 1)
         url = f"https://play.rivalium.com/api/{stream_id}/?start=random"
         while run_length > 0:
-            with urllib.request.urlopen(url) as req:
-                segments = json.loads(req.read())
+            segments = json.loads(fetch(url))
             if not segments:
                 # Reached the end of the stream, can't get to `run_length`.
                 break
@@ -83,12 +85,66 @@ def recv(stream_id):
     # TODO: Eventually, this should take a `mode` kwarg to specify the playback mode (random, normal, live).
     # NOTE: This is blocking, so live playing will have underruns while segments are fetched and decoded.
     urls = recv_urls(stream_id)
-    return urls.map(fetch).map(decodeOggOpus).join()
+    return urls.map(fetch).map(decode_ogg_opus).join()
 
-def send(stream, admin_url=None):
+def encode_ogg_opus(pcm_data):
+    # Setup Opus encoder.
+    encoder = pyogg.OpusBufferedEncoder()
+    encoder.set_application("audio")
+    # NOTE: Opus only supports sample rates of 8, 12, 16, 24, or 48 kHz.
+    target_rate = 48000
+    encoder.set_sampling_frequency(target_rate)
+    if SAMPLE_RATE != target_rate:
+        new_length = int(target_rate / SAMPLE_RATE * len(pcm_data))
+        x = np.arange(len(pcm_data)) / SAMPLE_RATE
+        new_x = np.arange(new_length) / target_rate
+        pcm_data = np.interp(new_x, x, pcm_data).astype(np.int16)
+    encoder.set_channels(1)
+    encoder.set_frame_size(20) # milliseconds
+    # Create in-memory file.
+    f = io.BytesIO()
+    # Encode segment.
+    writer = pyogg.OggOpusWriter(f, encoder)
+    writer.write(pcm_data)
+    writer.close()
+    return f.getbuffer()
+
+def upload_segment(url, blob):
+    boundary = b"---------------------------239558697137376533442076537635"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z").encode('utf8')
+    body = b"""--%s\r
+Content-Disposition: form-data; name="audio"; filename="%s.opus"\r
+Content-Type: audio/ogg; codecs=opus\r
+\r
+%s\r
+--%s--\r\n""" % (boundary, timestamp, blob, boundary)
+    # TODO: Remove print.
+    print(fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"}))
+
+def send(stream, admin_url=None, segment_duration=1.0):
     "Returns stream with side-effect of sending audio to Rivalium stream."
-    raise NotImplementedError
-    # return (effectful_stream, public_url, admin_url)
+    if admin_url is None:
+        data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
+        admin_url = data["admin"]
+        public_url = data["public"]
+    else:
+        public_url = json.loads(fetch(admin_url))["public"]
+
+    block = array.array("h", (0 for _ in range(convert_time(segment_duration))))
+
+    @FunctionStream
+    def upload_stream():
+        it = iter(stream)
+        i = len(block) - 1
+        while i == len(block) - 1:
+            i = -1
+            for i, sample in zip(range(len(block)), it):
+                yield sample
+                block[i] = int(sample * (2**15 - 1))
+            encoded = encode_ogg_opus(block[:i+1])
+            upload_segment(admin_url, encoded)
+
+    return (upload_stream, admin_url, public_url)
 
 # TODO: Implement interface for managing Rivalium groups
 # POST https://play.rivalium.com/group/create: -> returns group ID
