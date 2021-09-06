@@ -7,12 +7,12 @@ Example usage:
 >>> upload_stream, public_url, admin_url = rivalium.send(rand * 2 - 1)
 >>> play(upload_stream)
 """
-import array
 from datetime import datetime, timezone
 import io
 import json
 import tempfile
 import random
+import re
 import urllib.request
 
 import numpy as np
@@ -21,7 +21,7 @@ import pyogg
 from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
 
 def opus_to_array(opus_file, resample=True):
-    data = np.ctypeslib.as_array(opus_file.buffer, (opus_file.buffer_length // 2,)) / np.iinfo(np.int16).max
+    data = opus_file.as_array().reshape(-1) / np.iinfo(np.int16).max
     if resample and opus_file.frequency != SAMPLE_RATE:
         new_length = int(SAMPLE_RATE / opus_file.frequency * len(data))
         x = np.arange(len(data)) / opus_file.frequency
@@ -57,12 +57,34 @@ def fetch(url, **kwargs):
 #   Random number of iterations for request loop (e.g. 3-10):
 #     Then, takes last-played segment and asks for the following segments.
 
+def extract_id(descriptor):
+    """Parse a stream or group descriptor in a supported format:
+
+    - rvm.sh/0<stream ID>
+    - rvm.sh/2<group ID>
+    - play.rivalium.com/api/<stream ID>
+    - play.rivalium.com/group/<group ID>
+    - <stream ID>
+    Returns the type of ID (stream or group) and the extracted ID.
+    """
+    stream_url_match = re.match("(?:https?://)?(?:rvm.sh/0|play.rivalium.com/api/)(\w+)", descriptor)
+    if stream_url_match:
+        return ("stream", stream_url_match.groups()[0])
+    group_url_match = re.match("(?:https?://)?(?:rvm.sh/2|play.rivalium.com/group/)(\w+)", descriptor)
+    if group_url_match:
+        return ("group", group_url_match.groups()[0])
+    if re.match("\w+", descriptor):
+        return ("stream", descriptor)
+    raise ValueError("Expected valid stream/group URL or stream ID.")
+
 @stream
-def recv_urls(stream_id, max_run_length=30):
+def recv_urls(descriptor, max_run_length=30):
     "Returns endless stream of Rivalium segment URLs; random with sequential runs (up to `max_run_length` long)."
+    type, id = extract_id(descriptor)
+    prefix = type if type == "group" else "api"
     while True:
         run_length = random.randrange(1, max_run_length + 1)
-        url = f"https://play.rivalium.com/api/{stream_id}/?start=random"
+        url = f"https://play.rivalium.com/{prefix}/{id}/?start=random"
         while run_length > 0:
             segments = json.loads(fetch(url))
             if not segments:
@@ -70,18 +92,12 @@ def recv_urls(stream_id, max_run_length=30):
                 break
             for segment in segments[:run_length]:
                 id = segment['segmentID']
-                url = segment['segmentURL']
-                yield url
-            url = f"https://play.rivalium.com/api/{stream_id}/{id}"
+                yield segment['segmentURL']
+            url = f"https://play.rivalium.com/{prefix}/{id}/{id}"
             run_length -= len(segments)
 
 def recv(stream_id):
     "Returns endless stream of samples from random Rivalium segments."
-    # TODO: This should also works with groups (not just individual streams), and accomodate various formats for specifying the stream:
-    #   - rvm.sh/{0,2}<id> (0 indicates stream URL, 1 indicates admin URL, 2 indicates group URL)
-    #   - play.rivalium.com/api/<stream ID>
-    #   - play.rivalium.com/api/<group ID>
-    #   - <stream ID>
     # TODO: Eventually, this should take a `mode` kwarg to specify the playback mode (random, normal, live).
     # NOTE: This is blocking, so live playing will have underruns while segments are fetched and decoded.
     urls = recv_urls(stream_id)
@@ -120,8 +136,7 @@ Content-Type: audio/ogg; codecs=opus\r
 \r
 %s\r
 --%s--\r\n""" % (boundary, timestamp, blob, boundary)
-    # TODO: Remove print.
-    print(fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"}))
+    fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"})
 
 def send(stream, admin_url=None, segment_duration=0.5):
     "Returns stream with side-effect of sending audio to Rivalium stream."
