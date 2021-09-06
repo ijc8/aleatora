@@ -87,7 +87,7 @@ def recv(stream_id):
     urls = recv_urls(stream_id)
     return urls.map(fetch).map(decode_ogg_opus).join()
 
-def encode_ogg_opus(pcm_data):
+def encode_ogg_opus(samples):
     # Setup Opus encoder.
     encoder = pyogg.OpusBufferedEncoder()
     encoder.set_application("audio")
@@ -95,17 +95,19 @@ def encode_ogg_opus(pcm_data):
     target_rate = 48000
     encoder.set_sampling_frequency(target_rate)
     if SAMPLE_RATE != target_rate:
-        new_length = int(target_rate / SAMPLE_RATE * len(pcm_data))
-        x = np.arange(len(pcm_data)) / SAMPLE_RATE
+        new_length = int(target_rate / SAMPLE_RATE * len(samples))
+        x = np.arange(len(samples)) / SAMPLE_RATE
         new_x = np.arange(new_length) / target_rate
-        pcm_data = np.interp(new_x, x, pcm_data).astype(np.int16)
+        samples = np.interp(new_x, x, samples)
     encoder.set_channels(1)
     encoder.set_frame_size(20) # milliseconds
     # Create in-memory file.
     f = io.BytesIO()
     # Encode segment.
     writer = pyogg.OggOpusWriter(f, encoder)
-    writer.write(pcm_data)
+    samples *= 2**15 - 1
+    samples = samples.astype(np.int16)
+    writer.write(samples.data.cast("B"))
     writer.close()
     return f.getbuffer()
 
@@ -121,7 +123,7 @@ Content-Type: audio/ogg; codecs=opus\r
     # TODO: Remove print.
     print(fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"}))
 
-def send(stream, admin_url=None, segment_duration=1.0):
+def send(stream, admin_url=None, segment_duration=0.5):
     "Returns stream with side-effect of sending audio to Rivalium stream."
     if admin_url is None:
         data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
@@ -130,7 +132,7 @@ def send(stream, admin_url=None, segment_duration=1.0):
     else:
         public_url = json.loads(fetch(admin_url))["public"]
 
-    block = array.array("h", (0 for _ in range(convert_time(segment_duration))))
+    block = np.empty(convert_time(segment_duration), dtype=float)
 
     @FunctionStream
     def upload_stream():
@@ -140,7 +142,7 @@ def send(stream, admin_url=None, segment_duration=1.0):
             i = -1
             for i, sample in zip(range(len(block)), it):
                 yield sample
-                block[i] = int(sample * (2**15 - 1))
+                block[i] = sample
             encoded = encode_ogg_opus(block[:i+1])
             upload_segment(admin_url, encoded)
 
