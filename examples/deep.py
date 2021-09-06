@@ -20,9 +20,6 @@ def freq_contour(target):
         yield freq
     yield from ramp(freq, target, SWEEP, hold=True)[:SWEEP + HOLD + DECAY]
 
-def make_voice(target):
-    env = ramp(0, 1, WAVER)**3 >> const(1)[:SWEEP + HOLD] >> ramp(1, 0, DECAY)
-    return pan(saw(freq_contour(target)) * env, random.random())
-
-deep_note = sum(make_voice(target) for target in targets) / len(targets)
+env = (ramp(0, 1, WAVER)**3 >> const(1)[:SWEEP + HOLD] >> ramp(1, 0, DECAY)) / len(targets)
+deep_note = sum(pan(saw(freq_contour(target)), random.random()) for target in targets) * env
 wav.save(deep_note, "deep_note.wav")
