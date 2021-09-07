@@ -10,14 +10,15 @@ Example usage:
 from datetime import datetime, timezone
 import io
 import json
-import tempfile
 import random
 import re
+import tempfile
 import urllib.request
 
 import numpy as np
 import pyogg
 
+from .. import net
 from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
 
 def opus_to_array(opus_file, resample=True):
@@ -91,17 +92,18 @@ def recv_urls(descriptor, max_run_length=30):
                 # Reached the end of the stream, can't get to `run_length`.
                 break
             for segment in segments[:run_length]:
-                id = segment['segmentID']
                 yield segment['segmentURL']
-            url = f"https://play.rivalium.com/{prefix}/{id}/{id}"
+            url = f"https://play.rivalium.com/{prefix}/{id}/{segment['segmentID']}"
             run_length -= len(segments)
 
-def recv(stream_id):
+def recv_segments(descriptor):
+    return recv_urls(descriptor).map(fetch).map(decode_ogg_opus)
+
+def recv(descriptor):
     "Returns endless stream of samples from random Rivalium segments."
     # TODO: Eventually, this should take a `mode` kwarg to specify the playback mode (random, normal, live).
-    # NOTE: This is blocking, so live playing will have underruns while segments are fetched and decoded.
-    urls = recv_urls(stream_id)
-    return urls.map(fetch).map(decode_ogg_opus).join()
+    # Fetch and decode in another thread; queue up to 4 segments in advance.
+    return net.enqueue(recv_segments(descriptor), filler=[0], size=4).join()
 
 def encode_ogg_opus(samples):
     # Setup Opus encoder.

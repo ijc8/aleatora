@@ -1,5 +1,6 @@
 import threading
 import socket
+import queue
 
 from .streams import stream
 
@@ -44,6 +45,26 @@ def unblock(stream, filler=None, hold=False):
         yield value
         if hold:
             filler = value
+
+@stream
+def enqueue(blocking_stream, filler=None, size=1024):
+    """Convert a blocking stream into a non-blocking stream by running it ahead in another thread.
+
+    This creates a single thread at the start of iteration and starts computing immediately.
+    Unlike `unblock()`, the blocking stream will run past the non-blocking stream, queueing up to `size` elements ahead.
+    Yields `filler` if there are no elements ready in the queue.
+    """
+    q = queue.Queue(size)
+    def loop():
+        for item in blocking_stream:
+            q.put(item)
+    t = threading.Thread(target=loop)
+    t.start()
+    while t.is_alive():
+        try:
+            yield q.get_nowait()
+        except queue.Empty:
+            yield filler
 
 # This acts as a TCP client
 # TODO: Test with netcat
