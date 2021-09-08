@@ -58,7 +58,7 @@ def enqueue(blocking_stream, filler=None, size=1024):
     def loop():
         for item in blocking_stream:
             q.put(item)
-    t = threading.Thread(target=loop)
+    t = threading.Thread(target=loop, daemon=True)
     t.start()
     while t.is_alive():
         try:
