@@ -11,8 +11,10 @@ from datetime import datetime, timezone
 import io
 import json
 import random
+import queue
 import re
 import tempfile
+import threading
 import urllib.request
 
 import numpy as np
@@ -155,13 +157,21 @@ def send(stream, admin_url=None, segment_duration=0.5):
     def upload_stream():
         it = iter(stream)
         i = len(block) - 1
+        q = queue.Queue()
+        running = True
+        def loop():
+            while running:
+                admin_url, block = q.get()
+                upload_segment(admin_url, encode_ogg_opus(block))
+        t = threading.Thread(target=loop, daemon=True)
+        t.start()
         while i == len(block) - 1:
             i = -1
             for i, sample in zip(range(len(block)), it):
                 yield sample
                 block[i] = sample
-            encoded = encode_ogg_opus(block[:i+1])
-            upload_segment(admin_url, encoded)
+            q.put((admin_url, block[:i+1]))
+        running = False
 
     return (upload_stream, admin_url, public_url)
 
