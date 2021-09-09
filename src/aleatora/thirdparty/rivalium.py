@@ -107,17 +107,16 @@ def recv(descriptor):
     # Fetch and decode in another thread; queue up to 4 segments in advance.
     return net.enqueue(recv_segments(descriptor), filler=[0], size=4).join()
 
-def encode_ogg_opus(samples):
+def encode_ogg_opus(samples, sample_rate):
     # Setup Opus encoder.
     encoder = pyogg.OpusBufferedEncoder()
     encoder.set_application("audio")
     # NOTE: Opus only supports sample rates of 8, 12, 16, 24, or 48 kHz.
-    target_rate = 48000
-    encoder.set_sampling_frequency(target_rate)
-    if SAMPLE_RATE != target_rate:
-        new_length = int(target_rate / SAMPLE_RATE * len(samples))
+    encoder.set_sampling_frequency(sample_rate)
+    if SAMPLE_RATE != sample_rate:
+        new_length = int(sample_rate / SAMPLE_RATE * len(samples))
         x = np.arange(len(samples)) / SAMPLE_RATE
-        new_x = np.arange(new_length) / target_rate
+        new_x = np.arange(new_length) / sample_rate
         samples = np.interp(new_x, x, samples)
     encoder.set_channels(1)
     encoder.set_frame_size(20) # milliseconds
@@ -142,7 +141,7 @@ Content-Type: audio/ogg; codecs=opus\r
 --%s--\r\n""" % (boundary, timestamp, blob, boundary)
     fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"})
 
-def send(stream, admin_url=None, segment_duration=0.5):
+def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
     "Returns stream with side-effect of sending audio to Rivalium stream."
     if admin_url is None:
         data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
@@ -162,7 +161,7 @@ def send(stream, admin_url=None, segment_duration=0.5):
         def loop():
             while running:
                 admin_url, block = q.get()
-                upload_segment(admin_url, encode_ogg_opus(block))
+                upload_segment(admin_url, encode_ogg_opus(block, sample_rate))
         t = threading.Thread(target=loop, daemon=True)
         t.start()
         while i == len(block) - 1:
