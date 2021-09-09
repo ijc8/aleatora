@@ -38,7 +38,7 @@ def decode_ogg_opus(blob):
     with tempfile.NamedTemporaryFile(mode='wb') as tmp:
         tmp.write(blob)
         tmp.flush()
-        # TODO: Does pyogg skip the "pre-skip" samples?
+        # NOTE: Seems like pyogg skips the "pre-skip" samples.
         opus_file = pyogg.OpusFile(tmp.name)
     return stream(opus_to_array(opus_file).tolist())
 
@@ -102,7 +102,7 @@ def recv_segments(descriptor):
     return recv_urls(descriptor).map(fetch).map(decode_ogg_opus)
 
 def recv(descriptor):
-    "Returns endless stream of samples from random Rivalium segments."
+    "Returns endless stream of samples from Rivalium stream or group (in random playback mode)."
     # TODO: Eventually, this should take a `mode` kwarg to specify the playback mode (random, normal, live).
     # Fetch and decode in another thread; queue up to 4 segments in advance.
     return net.enqueue(recv_segments(descriptor), filler=[0], size=4).join()
@@ -142,7 +142,7 @@ Content-Type: audio/ogg; codecs=opus\r
     fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"})
 
 def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
-    "Returns stream with side-effect of sending audio to Rivalium stream."
+    "Returns a stream with side-effect of sending audio to a Rivalium stream."
     if admin_url is None:
         data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
         admin_url = data["admin"]
@@ -172,29 +172,46 @@ def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
             q.put((admin_url, block[:i+1]))
         running = False
 
-    return (upload_stream, admin_url, public_url)
+    return (upload_stream, public_url, admin_url)
 
-# TODO: Implement interface for managing Rivalium groups
-# POST https://play.rivalium.com/group/create: -> returns group ID
-# Currently:
-#   PUT https://play.rivalium.com/group/<group ID>: body is "https://play.rivalium.com/api/<stream ID>?start=random" -> ID for removal
-# In the future:
-#   PUT https://play.rivalium.com/group/<group ID>: body is "https://play.rivalium.com/api/<stream ID>" -> ID for removal
-# DELETE https://play.rivalium.com/group/<group ID>: body is ID for removal
-# GET https://play.rivalium.com/group/<group ID>/?start=random
-
-# In the future:
-#   /length endpoint
 
 class Group:
+    """Class representing a Rivalium group.
+    
+    Example usage:
+    >>> group = rivalium.Group()
+    >>> group.add("4hb496kn6yh")
+    >>> upload_stream, public_url, admin_url = rivalium.send(rand * 2 - 1)
+    >>> group.add(public_url)
+    >>> upload_stream[:10.0].run()
+    >>> play(group.recv())
+    >>> # time elapses...
+    >>> group.remove(public_url)
+    """
     def __init__(self, group_id=None):
-        # self.remove_keys = {}
-        raise NotImplementedError
+        self.group_id = group_id or fetch("https://play.rivalium.com/group/create", method="POST").decode("utf8")
+        self.remove_keys = {}
     
-    def add(self, stream_id):
-        # self.remove_keys[stream_id] = remove_key
-        raise NotImplementedError
+    def recv(self):
+        return recv(f"rvm.sh/2{self.group_id}")
     
-    def remove(self, stream_id):
-        # send_delete_request(..., self.remove_keys[stream_id])
-        raise NotImplementedError
+    def add(self, stream_descriptor):
+        type, stream_id = extract_id(stream_descriptor)
+        if type != "stream":
+            raise ValueError("Expected stream, got group.")
+        key = fetch(
+            f"https://play.rivalium.com/group/{self.group_id}",
+            data=f"https://play.rivalium.com/api/{stream_id}?start=random".encode("utf8"),
+            method="PUT", headers={"Content-Type": "text/plain"}
+        )
+        self.remove_keys[stream_id] = key
+    
+    def remove(self, stream_descriptor):
+        type, stream_id = extract_id(stream_descriptor)
+        if type != "stream":
+            raise ValueError("Expected stream, got group.")
+        fetch(
+            f"https://play.rivalium.com/group/{self.group_id}",
+            data=self.remove_keys[stream_id],
+            method="DELETE", headers={"Content-Type": "text/plain"}
+        )
