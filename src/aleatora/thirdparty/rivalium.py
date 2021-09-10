@@ -23,6 +23,9 @@ import pyogg
 from .. import net
 from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
 
+
+# Ogg Opus helper functions
+
 def opus_to_array(opus_file, resample=True):
     data = opus_file.as_array().reshape(-1) / np.iinfo(np.int16).max
     if resample and opus_file.frequency != SAMPLE_RATE:
@@ -40,25 +43,51 @@ def decode_ogg_opus(blob):
         tmp.flush()
         # NOTE: Seems like pyogg skips the "pre-skip" samples.
         opus_file = pyogg.OpusFile(tmp.name)
-    return stream(opus_to_array(opus_file).tolist())
+    return opus_to_array(opus_file)
+
+def encode_ogg_opus(samples, sample_rate):
+    # Setup Opus encoder.
+    encoder = pyogg.OpusBufferedEncoder()
+    encoder.set_application("audio")
+    # NOTE: Opus only supports sample rates of 8, 12, 16, 24, or 48 kHz.
+    encoder.set_sampling_frequency(sample_rate)
+    if SAMPLE_RATE != sample_rate:
+        new_length = int(sample_rate / SAMPLE_RATE * len(samples))
+        x = np.arange(len(samples)) / SAMPLE_RATE
+        new_x = np.arange(new_length) / sample_rate
+        samples = np.interp(new_x, x, samples)
+    encoder.set_channels(1)
+    encoder.set_frame_size(20) # milliseconds
+    # Create in-memory file.
+    f = io.BytesIO()
+    # Encode segment.
+    writer = pyogg.OggOpusWriter(f, encoder)
+    samples *= 2**15 - 1
+    samples = samples.astype(np.int16)
+    writer.write(samples.data.cast("B"))
+    writer.close()
+    return f.getbuffer()
+
+
+# Networking helpers functions
 
 def fetch(url, **kwargs):
     with urllib.request.urlopen(urllib.request.Request(url, **kwargs)) as req:
         return req.read()
 
-# Notes:
-#
-# Expected: 1 sec + 80 ms segments
-# Drop first 80ms
-# Find indices of first & last zero-crossings: crop buffer to region between them
-# For getting streams: Follow sortition redirect
-# Playback mode as part of query. Query preserved in sortition redirect.
-# Normal & live mode: request next segments from server
-# Random: up to 10 files at a time from sludge.
-#
-# Randomly plays the first N segments returned from API.
-#   Random number of iterations for request loop (e.g. 3-10):
-#     Then, takes last-played segment and asks for the following segments.
+def upload_segment(url, blob):
+    boundary = b"---------------------------239558697137376533442076537635"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z").encode('utf8')
+    body = b"""--%s\r
+Content-Disposition: form-data; name="audio"; filename="%s.opus"\r
+Content-Type: audio/ogg; codecs=opus\r
+\r
+%s\r
+--%s--\r\n""" % (boundary, timestamp, blob, boundary)
+    fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"})
+
+
+# Rivalium functions
 
 def extract_id(descriptor):
     """Parse a stream or group descriptor in a supported format:
@@ -99,47 +128,22 @@ def recv_urls(descriptor, max_run_length=30):
             run_length -= len(segments)
 
 def recv_segments(descriptor):
+    "Return stream of segments (as numpy arrays) from Rivalium stream or group (in random playback mode)."
     return recv_urls(descriptor).map(fetch).map(decode_ogg_opus)
+
+def zero_crossing_crop(segment):
+    "Crop segment to region between first and last zero-crossings, for click-free concatenation."
+    zero_crossings = np.where(np.diff(np.sign(segment)))[0]
+    start_index = zero_crossings[0] + 1  # Index after first zero-crossing
+    end_index = zero_crossings[-1]  # Index before last zero-crossing
+    return segment[start_index:end_index]
 
 def recv(descriptor):
     "Returns endless stream of samples from Rivalium stream or group (in random playback mode)."
     # TODO: Eventually, this should take a `mode` kwarg to specify the playback mode (random, normal, live).
+    cropped_segments = recv_segments(descriptor).map(zero_crossing_crop).map(np.ndarray.tolist)
     # Fetch and decode in another thread; queue up to 4 segments in advance.
-    return net.enqueue(recv_segments(descriptor), filler=[0], size=4).join()
-
-def encode_ogg_opus(samples, sample_rate):
-    # Setup Opus encoder.
-    encoder = pyogg.OpusBufferedEncoder()
-    encoder.set_application("audio")
-    # NOTE: Opus only supports sample rates of 8, 12, 16, 24, or 48 kHz.
-    encoder.set_sampling_frequency(sample_rate)
-    if SAMPLE_RATE != sample_rate:
-        new_length = int(sample_rate / SAMPLE_RATE * len(samples))
-        x = np.arange(len(samples)) / SAMPLE_RATE
-        new_x = np.arange(new_length) / sample_rate
-        samples = np.interp(new_x, x, samples)
-    encoder.set_channels(1)
-    encoder.set_frame_size(20) # milliseconds
-    # Create in-memory file.
-    f = io.BytesIO()
-    # Encode segment.
-    writer = pyogg.OggOpusWriter(f, encoder)
-    samples *= 2**15 - 1
-    samples = samples.astype(np.int16)
-    writer.write(samples.data.cast("B"))
-    writer.close()
-    return f.getbuffer()
-
-def upload_segment(url, blob):
-    boundary = b"---------------------------239558697137376533442076537635"
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z").encode('utf8')
-    body = b"""--%s\r
-Content-Disposition: form-data; name="audio"; filename="%s.opus"\r
-Content-Type: audio/ogg; codecs=opus\r
-\r
-%s\r
---%s--\r\n""" % (boundary, timestamp, blob, boundary)
-    fetch(url, method="POST", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary.decode('utf8')}"})
+    return net.enqueue(cropped_segments, filler=[0], size=4).join()
 
 def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
     "Returns a stream with side-effect of sending audio to a Rivalium stream."
