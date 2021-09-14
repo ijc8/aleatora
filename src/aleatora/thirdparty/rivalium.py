@@ -18,7 +18,10 @@ import threading
 import urllib.request
 
 import numpy as np
-import pyogg
+try:
+    import pyogg
+except ImportError:
+    print(f"Missing optional depenendency 'pyogg'. Install via `python -m pip install git+https://github.com/TeamPyOgg/PyOgg.git`.")
 
 from .. import net
 from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
