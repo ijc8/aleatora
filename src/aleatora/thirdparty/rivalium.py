@@ -98,17 +98,18 @@ def extract_id(descriptor):
     - rvm.sh/0<stream ID>
     - rvm.sh/2<group ID>
     - play.rivalium.com/api/<stream ID>
+    - play.rivalium.com/stream/<stream ID>
     - play.rivalium.com/group/<group ID>
     - <stream ID>
     Returns the type of ID (stream or group) and the extracted ID.
     """
-    stream_url_match = re.match("(?:https?://)?(?:rvm.sh/0|play.rivalium.com/api/)(\w+)", descriptor)
+    stream_url_match = re.match("(?:https?://)?(?:rvm.sh/0|play.rivalium.com/(?:api|stream)/)([A-Za-z0-9_-]+)", descriptor)
     if stream_url_match:
         return ("stream", stream_url_match.groups()[0])
-    group_url_match = re.match("(?:https?://)?(?:rvm.sh/2|play.rivalium.com/group/)(\w+)", descriptor)
+    group_url_match = re.match("(?:https?://)?(?:rvm.sh/2|play.rivalium.com/group/)([A-Za-z0-9_-]+)", descriptor)
     if group_url_match:
         return ("group", group_url_match.groups()[0])
-    if re.match("\w+", descriptor):
+    if re.match("[A-Za-z0-9_-]+", descriptor):
         return ("stream", descriptor)
     raise ValueError("Expected valid stream/group URL or stream ID.")
 
