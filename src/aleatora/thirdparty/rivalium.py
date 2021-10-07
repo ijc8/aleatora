@@ -40,7 +40,7 @@ def opus_to_array(opus_file, resample=True):
 
 def decode_ogg_opus(blob):
     # HACK: pyogg does not supported decoding Ogg Opus data from memory, so we write to a temporary file.
-    # (The underlying library, libopusfile, actually does via `op_open_memory`, so perhaps a PR is in order?)
+    # See https://github.com/TeamPyOgg/PyOgg/issues/90.
     with tempfile.NamedTemporaryFile(mode='wb') as tmp:
         tmp.write(blob)
         tmp.flush()
@@ -48,7 +48,7 @@ def decode_ogg_opus(blob):
         opus_file = pyogg.OpusFile(tmp.name)
     return opus_to_array(opus_file)
 
-def encode_ogg_opus(samples, sample_rate):
+def encode_ogg_opus(samples, sample_rate, preskip=None):
     # Setup Opus encoder.
     encoder = pyogg.OpusBufferedEncoder()
     encoder.set_application("audio")
@@ -64,7 +64,9 @@ def encode_ogg_opus(samples, sample_rate):
     # Create in-memory file.
     f = io.BytesIO()
     # Encode segment.
-    writer = pyogg.OggOpusWriter(f, encoder)
+    writer = pyogg.OggOpusWriter(f, encoder, preskip)
+    if preskip:
+        writer.write(bytearray(preskip * 2))
     samples *= 2**15 - 1
     samples = samples.astype(np.int16)
     writer.write(samples.data.cast("B"))
@@ -149,7 +151,7 @@ def recv(descriptor):
     # Fetch and decode in another thread; queue up to 4 segments in advance.
     return net.enqueue(cropped_segments, filler=[0], size=4).join()
 
-def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
+def send(stream, admin_url=None, segment_duration=0.5, sample_rate=48000):
     "Returns a stream with side-effect of sending audio to a Rivalium stream."
     if admin_url is None:
         data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
@@ -177,7 +179,7 @@ def send(stream, admin_url=None, segment_duration=1.0, sample_rate=12000):
             for i, sample in zip(range(len(block)), it):
                 yield sample
                 block[i] = sample
-            q.put((admin_url, block[:i+1]))
+            q.put((admin_url, block[:i+1].copy()))
         running = False
 
     return (upload_stream, public_url, admin_url)
