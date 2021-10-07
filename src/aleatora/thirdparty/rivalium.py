@@ -8,20 +8,18 @@ Example usage:
 >>> play(upload_stream)
 """
 from datetime import datetime, timezone
-import io
 import json
 import random
 import queue
 import re
-import tempfile
 import threading
 import urllib.request
 
 import numpy as np
 try:
-    import pyogg
+    import ffmpeg
 except ImportError:
-    print(f"Missing optional depenendency 'pyogg'. Install via `python -m pip install git+https://github.com/TeamPyOgg/PyOgg.git`.")
+    print(f"Missing optional depenendency 'ffmpeg-python'. Install via `python -m pip install ffmpeg-python`.")
 
 from .. import net
 from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
@@ -29,49 +27,19 @@ from ..streams import convert_time, FunctionStream, SAMPLE_RATE, stream
 
 # Ogg Opus helper functions
 
-def opus_to_array(opus_file, resample=True):
-    data = opus_file.as_array().reshape(-1) / np.iinfo(np.int16).max
-    if resample and opus_file.frequency != SAMPLE_RATE:
-        new_length = int(SAMPLE_RATE / opus_file.frequency * len(data))
-        x = np.arange(len(data)) / opus_file.frequency
-        new_x = np.arange(new_length) / SAMPLE_RATE
-        data = np.interp(new_x, x, data)
-    return data
+def encode(samples, bitrate):
+    return (ffmpeg
+        .input('pipe:', format='f32le', acodec='pcm_f32le', ac=1, ar=SAMPLE_RATE)
+        .output('pipe:', format='opus', audio_bitrate=bitrate)
+        .run(input=memoryview(samples.astype(np.float32)).cast('B'), quiet=True)
+    )[0]
 
-def decode_ogg_opus(blob):
-    # HACK: pyogg does not supported decoding Ogg Opus data from memory, so we write to a temporary file.
-    # See https://github.com/TeamPyOgg/PyOgg/issues/90.
-    with tempfile.NamedTemporaryFile(mode='wb') as tmp:
-        tmp.write(blob)
-        tmp.flush()
-        # NOTE: Seems like pyogg skips the "pre-skip" samples.
-        opus_file = pyogg.OpusFile(tmp.name)
-    return opus_to_array(opus_file)
-
-def encode_ogg_opus(samples, sample_rate, preskip=None):
-    # Setup Opus encoder.
-    encoder = pyogg.OpusBufferedEncoder()
-    encoder.set_application("audio")
-    # NOTE: Opus only supports sample rates of 8, 12, 16, 24, or 48 kHz.
-    encoder.set_sampling_frequency(sample_rate)
-    if SAMPLE_RATE != sample_rate:
-        new_length = int(sample_rate / SAMPLE_RATE * len(samples))
-        x = np.arange(len(samples)) / SAMPLE_RATE
-        new_x = np.arange(new_length) / sample_rate
-        samples = np.interp(new_x, x, samples)
-    encoder.set_channels(1)
-    encoder.set_frame_size(20) # milliseconds
-    # Create in-memory file.
-    f = io.BytesIO()
-    # Encode segment.
-    writer = pyogg.OggOpusWriter(f, encoder, preskip)
-    if preskip:
-        writer.write(bytearray(preskip * 2))
-    samples *= 2**15 - 1
-    samples = samples.astype(np.int16)
-    writer.write(samples.data.cast("B"))
-    writer.close()
-    return f.getbuffer()
+def decode(blob):
+    return np.frombuffer((ffmpeg
+        .input('pipe:', format='ogg', acodec='opus')
+        .output('pipe:', format='f32le', acodec='pcm_f32le', ar=SAMPLE_RATE)
+        .run(input=blob, capture_stdout=True)
+    )[0], np.float32)
 
 
 # Networking helpers functions
@@ -135,7 +103,7 @@ def recv_urls(descriptor, max_run_length=30):
 
 def recv_segments(descriptor):
     "Return stream of segments (as numpy arrays) from Rivalium stream or group (in random playback mode)."
-    return recv_urls(descriptor).map(fetch).map(decode_ogg_opus)
+    return recv_urls(descriptor).map(fetch).map(decode)
 
 def zero_crossing_crop(segment):
     "Crop segment to region between first and last zero-crossings, for click-free concatenation."
@@ -151,7 +119,7 @@ def recv(descriptor):
     # Fetch and decode in another thread; queue up to 4 segments in advance.
     return net.enqueue(cropped_segments, filler=[0], size=4).join()
 
-def send(stream, admin_url=None, segment_duration=0.5, sample_rate=48000):
+def send(stream, admin_url=None, segment_duration=1.0, bitrate=12000):
     "Returns a stream with side-effect of sending audio to a Rivalium stream."
     if admin_url is None:
         data = json.loads(fetch("https://play.rivalium.com/api/stream", method="POST"))
@@ -160,7 +128,7 @@ def send(stream, admin_url=None, segment_duration=0.5, sample_rate=48000):
     else:
         public_url = json.loads(fetch(admin_url))["public"]
 
-    block = np.empty(convert_time(segment_duration), dtype=float)
+    block = np.empty(convert_time(segment_duration), dtype=np.float32)
 
     @FunctionStream
     def upload_stream():
@@ -171,7 +139,7 @@ def send(stream, admin_url=None, segment_duration=0.5, sample_rate=48000):
         def loop():
             while running:
                 admin_url, block = q.get()
-                upload_segment(admin_url, encode_ogg_opus(block, sample_rate))
+                upload_segment(admin_url, encode(block, bitrate))
         t = threading.Thread(target=loop, daemon=True)
         t.start()
         while i == len(block) - 1:
