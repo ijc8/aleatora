@@ -38,7 +38,7 @@ def decode(blob):
     return np.frombuffer((ffmpeg
         .input('pipe:', format='ogg', acodec='opus')
         .output('pipe:', format='f32le', acodec='pcm_f32le', ar=SAMPLE_RATE)
-        .run(input=blob, capture_stdout=True)
+        .run(input=blob, quiet=True)
     )[0], np.float32)
 
 
