@@ -196,6 +196,10 @@ class Stream(collections.abc.Iterable):
         for chunk in self:
             yield from chunk
 
+    def run(self):
+        for _ in self:
+            pass
+
 
 
 class FunctionStream(Stream):

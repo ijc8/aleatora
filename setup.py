@@ -27,6 +27,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 speech = ["gtts", "streamp3~=0.1.7"]
 foxdot = ["FoxDotPatterns~=0.1.0"]
 plugins = ["popsicle~=0.8.0"]
+rivalium = ["ffmpeg-python~=0.2.0"]
 
 setuptools.setup(
     name="aleatora",
@@ -65,6 +66,7 @@ setuptools.setup(
         "speech": speech,
         "foxdot": foxdot,
         "plugins": plugins,
-        "all": speech + foxdot + plugins,
+        "rivalium": rivalium,
+        "all": speech + foxdot + plugins + rivalium,
     }
 )
