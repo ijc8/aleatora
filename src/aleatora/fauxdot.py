@@ -72,8 +72,8 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, sample=0):
                 # All of the other PGroupPrime subclasses spread over `dur`.
                 yield from _event_stream(pattern_to_stream(degree.data), const(dur / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
             elif isinstance(degree, PGroup):
-                # Everything in here needs to happen simultaneously; yield a list of layers.
-                yield [_event_stream(pattern_to_stream(layer), const(dur), const(sus), const(delay), const(amp), const(bpm), const(sample)) for layer in degree.data]
+                # Everything in here needs to happen simultaneously; yield a list of layers (and timing info).
+                yield ([_event_stream(pattern_to_stream(layer), const(dur), const(sus), const(delay), const(amp), const(bpm), const(sample)) for layer in degree.data], dur, bpm)
             else:
                 yield (degree, dur, sus, delay, amp, bpm, sample)
     return _event_stream(degree, dur, sus, delay, amp, bpm, sample)
@@ -115,34 +115,43 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
     queue = []
     t = 0
     i = 0
-    for event in event_stream:
-        # Each event is either a single event (tuple of details) or a list of layers (substreams of the same type).
-        if isinstance(event, list):
+
+    def enqueue_event(event, t):
+        nonlocal i
+        # Each event contains either a single degree or a list of simultaneous substreams.
+        if isinstance(event[0], list):
             # Group: layers should occur simultaneously
-            yield from sum((events_to_messages(layer, root, scale, oct) for layer in event), empty)
+            layers, dur, bpm = event
+            for layer in layers:
+                st = t
+                for event in layer:
+                    st += enqueue_event(event, st)
         else:
             degree, dur, sus, delay, amp, bpm, _ = event
             _, pitch = get_freq_and_midi(degree, oct, root, scale)
             if delay != 0:
                 delay *= 60/bpm
-            dur *= 60/bpm
             sus *= 60/bpm
             noteon = midi.Message(type='note_on', note=pitch, velocity=int(amp*127))
             noteoff = midi.Message(type='note_off', note=pitch)
             heapq.heappush(queue, (t, i, noteon))
             heapq.heappush(queue, (t + sus, i + 1, noteoff))
             i += 2
-            end = t + dur
-            while queue and queue[0][0] < end:
-                time, _, event = heapq.heappop(queue)
-                yield from const(())[:time - t]
-                events = (event,)
-                while queue and queue[0][0] <= time:
-                    events += (heapq.heappop(queue)[2],)
-                yield events
-                t = time + 1/SAMPLE_RATE
-            yield from const(())[:end - t]
-            t = end
+        return dur * 60/bpm
+
+    for event in event_stream:
+        dur = enqueue_event(event, t)
+        end = t + dur
+        while queue and queue[0][0] < end:
+            time, _, event = heapq.heappop(queue)
+            yield from const(())[:time - t]
+            events = (event,)
+            while queue and queue[0][0] <= time:
+                events += (heapq.heappop(queue)[2],)
+            yield events
+            t = time + 1/SAMPLE_RATE
+        yield from const(())[:end - t]
+        t = end
     # Flush any remaining `note_off`s.
     while queue:
         time, _, event = heapq.heappop(queue)
