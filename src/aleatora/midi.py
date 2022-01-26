@@ -21,7 +21,7 @@ import mido
 
 from aleatora.streams.core import FunctionStream
 
-from .streams import const, events_in_time, m2f, osc, ramp, repeat, SAMPLE_RATE, stream
+from .streams import const, events_in_time, frame, m2f, osc, ramp, repeat, SAMPLE_RATE, stream
 
 get_input_names = mido.get_input_names
 
@@ -205,3 +205,29 @@ def sampler(mapping, fade=0.01):
                 return
         yield from it
     return instrument
+
+
+@stream
+def soundfont(event_stream, preset=0, chunk_size=1024, path="/usr/share/sounds/sf2/default-GM.sf2"):
+    try:
+        import fluidsynth
+    except ImportError as exc:
+        raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
+
+    # NOTE: Currently, this sets up the synth when the stream starts.
+    # This might(?) be slow, especially for short cycled streams, but it guarantees fresh synth state upon replay.
+    # (If you don't want a fresh synth state, cycle `event_stream` rather than this stream.)
+    fs = fluidsynth.Synth()
+    sfid = fs.sfload(path)
+    fs.program_select(0, sfid, 0, preset)
+
+    for chunk in event_stream.chunk(chunk_size):
+        for events in chunk:
+            for event in events:
+                if event.type == 'note_on':
+                    fs.noteon(0, int(event.note), event.velocity)
+                elif event.type == 'note_off':
+                    fs.noteoff(0, int(event.note))
+        yield from map(frame, fs.get_samples(chunk_size).reshape((-1, 2)) / (2**15-1))
+
+    fs.delete()
