@@ -60,8 +60,6 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, sample=0):
     @stream
     def _event_stream(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream, sample_stream):
         for (degree, dur, sus, delay, amp, bpm, sample) in zip(degree_stream, dur_stream, sus_stream, delay_stream, amp_stream, bpm_stream, sample_stream):
-            # TODO: May need to deal with PGroupOr (which has a custom calculate_sample) here or punt.
-            # TODO: Check how these are supposed to interact with sus and delay.
             # NOTE: We should not see nested Patterns here (just groups), because they should already be taken care of by pattern_to_stream.
             if isinstance(degree, PGroupOr):
                 yield from _event_stream(pattern_to_stream(degree.data), const(dur), const(sus), const(delay), const(amp), const(bpm), pattern_to_stream(degree.meta[0]).cycle())
@@ -99,7 +97,6 @@ def events_to_samples(event_stream):
             dur *= 60/bpm
             yield from fit(sample, dur)
 
-# TODO: Support sample, maybe support amplify.
 def beat(pattern, dur=0.5, sus=None, delay=0, amp=1, bpm=120, sample=0):
     if sus is None:
         sus = dur
