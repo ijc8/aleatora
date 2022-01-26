@@ -110,6 +110,13 @@ def AudioStream_getitem(self, index):
 
 Stream.__getitem__ = AudioStream_getitem
 
+super_hold = Stream.hold
+
+def AudioStream_hold(self, duration):
+    return super_hold(self, convert_time(duration))
+
+Stream.hold = AudioStream_hold
+
 def AudioStream_freeze(self, key=None, redo=False, verbose=False):
     return freeze(key, self, redo, verbose)
 
