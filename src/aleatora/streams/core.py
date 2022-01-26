@@ -152,11 +152,10 @@ class Stream(collections.abc.Iterable):
             for _ in range(duration):
                 yield x
 
-    @stream
     def reverse(self):
         # NOTE: Naturally, this requires evaluating the entire stream.
         # Calling this on an infinite stream will not result in a good time.
-        return lambda: iter(list(self)[::-1])
+        return FunctionStream(lambda: iter(list(self)[::-1]))
     
     # scan left, or accumulate
     @stream

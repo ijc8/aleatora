@@ -41,9 +41,9 @@ low_rate = 1 + osc(mod_freq) * mod_depth
 mid_rate = 2 + osc(mod_freq) * mod_depth
 high_rate = 3 + osc(mod_freq) * mod_depth
 
-low = resample(m, low_rate)
-mid = silence[:5.0] >> (resample(m, mid_rate[5.0:]) * basic_envelope(58.0 - 5.0))
-high = silence[:10.0] >> (resample(m, high_rate[10.0:]) * basic_envelope(56.0 - 10.0))
+low = m.resample(low_rate)
+mid = silence[:5.0] >> (m.resample(mid_rate[5.0:]) * basic_envelope(58.0 - 5.0))
+high = silence[:10.0] >> (m.resample(high_rate[10.0:]) * basic_envelope(56.0 - 10.0))
 
 composition = (low + mid + high)/3
 wav.save(composition, "csick.wav", verbose=True)

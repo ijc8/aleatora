@@ -2,31 +2,24 @@ from aleatora import *
 import numpy as np
 
 @stream
-def convolve(stream, impulse_response, mode='same', prev_values=None):
-    if prev_values is None:
-        prev_values = np.zeros(len(impulse_response))
-    def closure():
-        result = stream()
-        if isinstance(result, Return):
-            if mode == 'same':
-                return result
-            elif mode in ('full', 'valid'):
-                raise NotImplementedError
-            else:
-                raise ValueError("mode must be 'full', 'same', or 'valid'")
-        value, next_stream = result
-        values = np.roll(prev_values, 1)  # creates a copy
-        values[0] = value
-        return (np.dot(values, impulse_response), convolve(next_stream, impulse_response, mode=mode, prev_values=values))
-    return closure
+def convolve(strm, impulse_response, mode='same'):
+    size = len(impulse_response)
+    if mode == 'full':
+        strm = strm >> silence[:size-1]
+    if mode == 'valid':
+        strm = iter(strm)
+        history = np.fromiter(strm, dtype=float, count=size)
+    else:
+        history = np.zeros(size)
+    impulse_response = impulse_response[::-1]
+    i = 0
+    for value in strm:
+        history[i] = value
+        i = (i + 1) % size
+        yield np.dot(history[:i], impulse_response[:i]) + np.dot(history[i:], impulse_response[i:])
 
-
-def saw(freq):
-    return count().map(lambda t: (t * freq/SAMPLE_RATE % 1) * 2 - 1)
-
-
-main = cycle(saw(m2f(40)) * basic_envelope(0.25) >> silence[:0.25])
-
+unfiltered = (saw(m2f(40)) * basic_envelope(0.25) >> silence[:0.25]).cycle()
+main = convolve(unfiltered, np.ones(30)/30)
 
 if __name__ == '__main__':
     run(main)

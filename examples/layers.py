@@ -12,7 +12,6 @@ tree = start >> flip(
 )
 
 def layer(pos):
-    # return (lambda: pan(tree, pos) >> layer(pos) + layer(random.random()))()
     return pan(tree, pos) >> defer(lambda: layer(pos) + layer(random.random()))
 
 wav.save(normalize(layer(0.5)[:30.0]), "layers.wav", verbose=True)
