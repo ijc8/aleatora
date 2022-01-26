@@ -43,25 +43,21 @@ def input_stream(port=None):
         port = mido.open_input(port)
     return repeat(lambda: tuple(port.iter_pending()))
 
-# TODO: test this
 @stream
 def file_stream(filename, include_meta=False):
     simultaneous = []
-    timestamp = 0
+    delta = 0
     for message in mido.MidiFile(filename):
-        delta = message.time/SAMPLE_RATE
-        if delta == 0:
-            if not message.is_meta or include_meta:
-                simultaneous.append(message)
-        else:
-            timestamp += delta
-            yield from const(())[:int(timestamp)]
-            timestamp -= int(timestamp)
-            if not message.is_meta or include_meta:
-                yield tuple(simultaneous)
+        delta += message.time * SAMPLE_RATE
+        if int(delta) > 0:
+            yield tuple(simultaneous)
+            delta -= 1
+            yield from const(())[:int(delta)]
+            delta -= int(delta)
             simultaneous = []
+        if not message.is_meta or include_meta:
+            simultaneous.append(message)
 
-# TODO: test this
 def render(stream, filename, rate=None, bpm=120):
     if rate is None:
         rate = SAMPLE_RATE
@@ -71,6 +67,8 @@ def render(stream, filename, rate=None, bpm=120):
     t = 0
     for messages in stream:
         for message in messages:
+            if not isinstance(message, mido.Message):
+                message = mido.Message(message.type, note=int(message.note), velocity=int(message.velocity or 0))
             message.time = int(t)
             t -= int(t)
             track.append(message)
@@ -224,10 +222,15 @@ def soundfont(event_stream, preset=0, chunk_size=1024, path="/usr/share/sounds/s
     for chunk in event_stream.chunk(chunk_size):
         for events in chunk:
             for event in events:
+                channel = getattr(event, "channel", 0)
                 if event.type == 'note_on':
-                    fs.noteon(0, int(event.note), event.velocity)
+                    fs.noteon(channel, int(event.note), event.velocity)
                 elif event.type == 'note_off':
-                    fs.noteoff(0, int(event.note))
+                    fs.noteoff(channel, int(event.note))
+                elif event.type == 'control_change':
+                    fs.cc(channel, event.control, event.value)
+                elif event.type == 'program_change':
+                    fs.program_change(channel, event.program)
         yield from map(frame, fs.get_samples(chunk_size).reshape((-1, 2)) / (2**15-1))
 
     fs.delete()
