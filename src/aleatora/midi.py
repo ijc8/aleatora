@@ -44,7 +44,7 @@ def input_stream(port=None):
     return repeat(lambda: tuple(port.iter_pending()))
 
 @stream
-def file_stream(filename, include_meta=False):
+def load(filename, include_meta=False):
     simultaneous = []
     delta = 0
     for message in mido.MidiFile(filename):
@@ -58,7 +58,7 @@ def file_stream(filename, include_meta=False):
         if not message.is_meta or include_meta:
             simultaneous.append(message)
 
-def render(stream, filename, rate=None, bpm=120):
+def save(stream, filename, rate=None, bpm=120):
     if rate is None:
         rate = SAMPLE_RATE
     mid = mido.MidiFile()
