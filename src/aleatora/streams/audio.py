@@ -310,19 +310,97 @@ def normalize(strm):
     peak = np.max(np.abs(a))
     return stream(a / peak)
 
-# Analagous to DAW timeline; takes a bunch of streams and their start times, and arranges them in a reasonably efficient way.
-def arrange(items, background=silence):
+
+class Mixer:
+    """
+    Supports dynamically connecting and disconnecting streams to output.
+    This enables a more imperative, ChucK-ish style.
+
+    Example:
+
+        @stream
+        def example():
+            out = Mixer()
+            out <= osc(100)           # connect oscillator to output
+            yield from out[:0.5]      # yield samples for 0.5 seconds
+
+            handle = out <= osc(200)  # connect another oscillator, save handle
+            yield from out[:0.5]      # yield for another 0.5 seconds
+
+            out >= handle             # disconnect the last oscillator
+            yield from out            # yield all the remaining output
+    """
+    def __init__(self, streams=[], fill=0):
+        for stream in streams:
+            self <= stream
+        self.iterators = []
+        self.fill = fill
+
+    def __le__(self, stream):
+        it = iter(stream)
+        self.iterators.append(it)
+        return it
+    
+    def __ge__(self, it):
+        self.iterators.remove(it)
+
+    def __getitem__(self, item):
+        assert(isinstance(item, slice))
+        assert(item.start is None)
+        assert(item.step is None)
+        t = convert_time(item.stop)
+        iterators = self.iterators
+        fill = self.fill
+        for _ in range(t):
+            while iterators:
+                try:
+                    acc = next(iterators[-1])
+                    break
+                except StopIteration:
+                    del iterators[-1]
+            for i in range(len(iterators) - 2, -1, -1):
+                try:
+                    acc += next(iterators[i])
+                except StopIteration:
+                    del iterators[i]
+            if not iterators:
+                acc = fill
+            yield acc
+    
+    def __iter__(self):
+        # TODO: Reduce duplication between this, __getitem__(),
+        #       and MixStream.__iter__().
+        iterators = self.iterators
+        while True:
+            while iterators:
+                try:
+                    acc = next(iterators[-1])
+                    break
+                except StopIteration:
+                    del iterators[-1]
+            for i in range(len(iterators) - 2, -1, -1):
+                try:
+                    acc += next(iterators[i])
+                except StopIteration:
+                    del iterators[i]
+            if not iterators:
+                break
+            yield acc
+
+# Analagous to DAW timeline; takes a bunch of streams and their start times,
+# and arranges them to start at those times and play simultaneously.
+@stream
+def arrange(items, fill=0):
     if not items:
         return empty
-    items = sorted(items, key=lambda item: item[0], reverse=True)
-    last_start_time, last_stream = items[0]
-    out = lambda r: r + last_stream
-    prev_start_time = last_start_time
-    for start_time, stream in items[1:]:
-        # Sometimes I really wish Python had `let`...
-        out = (lambda start, stream, prev: (lambda r: (r + stream)[:start].bind(prev)))(prev_start_time - start_time, stream, out)
-        prev_start_time = start_time
-    return background[:last_start_time][:prev_start_time].bind(out)
+    items = sorted(items, key=lambda item: item[0])
+    out = Mixer(fill=fill)
+    last_time = 0
+    for time, stream in items:
+        yield from out[:time - last_time]
+        out <= stream
+        last_time = time
+    yield from out
 
 # More new stuff (3/2):
 def cons(item, stream):
