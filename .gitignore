@@ -6,3 +6,4 @@ rendered/
 samples/
 .vscode/
 dist/
+build/

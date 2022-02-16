@@ -233,7 +233,7 @@ class MixStream(Stream):
                 self.streams += stream.streams
             else:
                 self.streams.append(stream)
-    
+
     def __iter__(self):
         # This would work if we were okay with terminating when the shortest stream finished:
         #   for values in zip(*self.streams):
