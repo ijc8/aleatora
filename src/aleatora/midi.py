@@ -109,7 +109,7 @@ def mono_instrument(stream, freq=0, amp=0, velocity=0, waveform=osc):
         yield amp * next(waveform_iter)
 
 # Convert a monophonic instrument into a polyphonic instrument.
-def poly(monophonic_instrument, persist_internal=False):
+def make_poly(monophonic_instrument, persist_internal=False):
     # Provides a 'substream' of messages for a single voice in a polyphonic instrument.
     def make_event_substream():
         @FunctionStream
@@ -156,11 +156,24 @@ def poly(monophonic_instrument, persist_internal=False):
                 except StopIteration:
                     del voices[i]
             yield acc
+        while voices:
+            acc = 0
+            for i in range(len(voices) - 1, -1, -1):
+                try:
+                    sample = next(voices[i])
+                    acc += sample
+                except StopIteration:
+                    del voices[i]
+            yield acc
     return polyphonic_instrument
 
-def poly_instrument(event_stream, **kwargs):
-    return poly(mono_instrument)(event_stream, **kwargs)
+# Handy decorator version
+def poly(monophonic_instrument=None, persist_internal=False):
+    if monophonic_instrument is None:
+        return lambda mi: make_poly(mi, persist_internal)
+    return make_poly(monophonic_instrument, persist_internal)
 
+poly_instrument = poly(mono_instrument)
 
 # Takes [(pitch, duration)] and converts it to a Stream of Messages.
 # TODO: support velocity?
