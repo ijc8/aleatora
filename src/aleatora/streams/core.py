@@ -199,6 +199,11 @@ class Stream(collections.abc.Iterable):
         for _ in self:
             pass
 
+    def split(self, n=2):
+        "Split one stream into many, so that it can be used as input in multiple places without recomputing output."
+        # NOTE: Unlike the original stream, the 'split' streams are not restartable!
+        return [stream(it) for it in itertools.tee(self, n)]
+
 
 
 class FunctionStream(Stream):

@@ -342,7 +342,11 @@ class Mixer:
         return it
     
     def __ge__(self, it):
-        self.iterators.remove(it)
+        try:
+            self.iterators.remove(it)
+        except ValueError:
+            # Iterator may have already been removed due to exhaustion.
+            pass
 
     def __getitem__(self, item):
         assert(isinstance(item, slice))
@@ -537,17 +541,6 @@ def record(key=None, stream=None, redo=False):
                 return empty
             return iter(stream.map(lambda x: recorded.append(x) or x).bind(finish))
     return FunctionStream(helper)
-
-# TODO: This will need rework.
-# This is a function that can split a stream into multiple streams that will yield the same values.
-# The tricky part is ensuring that we don't keep around excess memoized results.
-# That is why this is wrapped in a lambda: consider the memory implications of the simpler definition,
-# `splitter = lambda stream, receiver: receiver(memoize(stream))`
-# The problem is that (assuming the result of splitter is stored) it retains a reference to the head of the memoize chain,
-# which will keep the entire memoize chain in memory until that outer reference expires.
-@stream
-def splitter(stream, receiver):
-    return lambda: receiver(stream.memoize())()
 
 
 # Functions for generating compositions from directly from waveform functions.
