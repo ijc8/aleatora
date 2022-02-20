@@ -1,39 +1,56 @@
 import collections
 import heapq
+from typing import TYPE_CHECKING
 
 from .streams import const, empty, fit, just, SAMPLE_RATE, silence, stream, Stream
 from . import midi
 from . import wav
+
+importError = None
 
 try:
     from FoxDotPatterns import (
         GeneratorPattern, P, Pattern, PEuclid, PGroup, PGroupPrime, PGroupPlus, PGroupOr, PRand,
         ParsePlayString, Root, Scale, get_freq_and_midi, Samples, nil
     )
+
+    nil.stream = empty
+
+    def buffer_read(buffer):
+        buffer.stream = wav.load(buffer.fn)
+
+    def buffer_free(buffer):
+        # Nothing to see here; buffer should get garbage-collected, and so should buffer.stream.
+        pass
+
+    Samples.buffer_read = buffer_read
+    Samples.buffer_free = buffer_free
+
+    # Monkey-patch GeneratorPattern to avoid caching results (for nondeterministic replayability).
+    def GeneratorPattern_getitem(self, index=None, *args):
+        """ Calls self.func(index) to get an item if index is not in
+            self.history, otherwise returns self.history[index] """
+        if index is None:
+            index, self.index = self.index, self.index + 1
+        return self.func(index)
+
+    GeneratorPattern.getitem = GeneratorPattern_getitem
 except ImportError as exc:
-    raise ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
-
-nil.stream = empty
-
-def buffer_read(buffer):
-    buffer.stream = wav.load(buffer.fn)
-
-def buffer_free(buffer):
-    # Nothing to see here; buffer should get garbage-collected, and so should buffer.stream.
-    pass
-
-Samples.buffer_read = buffer_read
-Samples.buffer_free = buffer_free
-
-# Monkey-patch GeneratorPattern to avoid caching results (for nondeterministic replayability).
-def GeneratorPattern_getitem(self, index=None, *args):
-    """ Calls self.func(index) to get an item if index is not in
-        self.history, otherwise returns self.history[index] """
-    if index is None:
-        index, self.index = self.index, self.index + 1
-    return self.func(index)
-
-GeneratorPattern.getitem = GeneratorPattern_getitem
+    # Defer import error to time of usage.
+    importError = ImportError(f"Missing optional dependency '{exc.name}'. Install via `python -m pip install {exc.name}`.")
+    if TYPE_CHECKING:
+        raise importError
+    else:
+        class Fake:
+            def __call__(*args):
+                raise importError
+            def __getitem__(*args):
+                raise importError
+            def __getattribute__(self, name):
+                if name == 'default':
+                    return Fake()
+                raise importError
+        Root = Scale = P = PRand = PEuclid = Fake()
 
 
 def pattern_to_stream(patternish):
@@ -98,6 +115,8 @@ def events_to_samples(event_stream):
             yield from fit(sample, dur)
 
 def beat(pattern, dur=0.5, sus=None, delay=0, amp=1, bpm=120, sample=0):
+    if importError:
+        raise ImportError
     if sus is None:
         sus = dur
     return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm, sample))
@@ -162,6 +181,8 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
 
 # Return an event stream suitable for passing into an instrument.
 def tune(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, root=Root.default, scale=Scale.default, oct=5):
+    if importError:
+        raise importError
     return events_to_messages(event_stream(degree, dur=dur, sus=sus, delay=delay, amp=amp, bpm=bpm), root=root, scale=scale, oct=oct)
 
 
