@@ -28,6 +28,7 @@ speech = ["gtts", "streamp3~=0.1.7"]
 foxdot = ["FoxDotPatterns~=0.1.0"]
 plugins = ["popsicle~=0.8.0"]
 soundfont = ["pyFluidSynth==1.3.0"]
+stk = ["cppyy~=2.1.0"]
 rivalium = ["ffmpeg-python~=0.2.0"]
 
 setuptools.setup(
@@ -68,7 +69,8 @@ setuptools.setup(
         "foxdot": foxdot,
         "plugins": plugins,
         "soundfont": soundfont,
+        "stk": stk,
         "rivalium": rivalium,
-        "all": speech + foxdot + plugins + soundfont + rivalium,
+        "all": speech + foxdot + plugins + soundfont + stk + rivalium,
     }
 )
