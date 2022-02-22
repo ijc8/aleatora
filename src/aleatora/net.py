@@ -66,6 +66,27 @@ def enqueue(blocking_stream, filler=None, size=1024):
         except queue.Empty:
             yield filler
 
+@stream
+def latest(stream, filler=None):
+    """Convert a blocking stream into a non-blocking stream by running it ahead in another thread.
+    
+    Unlike `enqueue()`, the blocking stream runs as fast as possible (no blocking on the main thread).
+    The non-blocking stream always yields the most recent value received from the blocking stream,
+    which means that any values received between pulls on the non-blocking stream are lost.
+    This behavior is useful for e.g. UDP (and more specifically OSC) streams used for control,
+    where only the most recent data is relevant.
+    """
+    value = filler
+    def loop():
+        nonlocal value
+        for item in stream:
+            value = item
+
+    thread = threading.Thread(target=loop)
+    thread.start()
+    while thread.is_alive():
+        yield value
+
 # This acts as a TCP client
 # TODO: Test with netcat
 @stream
