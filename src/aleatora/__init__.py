@@ -11,5 +11,6 @@ from . import net
 from . import plugins
 from .profile import profile
 from .speech import speech, sing
-from .streams import *
+from .streams.core import *
+from .streams.audio import *
 from . import wav
