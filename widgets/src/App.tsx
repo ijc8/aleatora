@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 let socket = new WebSocket("ws://localhost:8765")
@@ -22,7 +22,34 @@ function Slider({ min, max, value, onChange }:
   return <input type="range" min={min} max={max} value={value} step="any" onChange={e => onChange?.(+e.target.value)} readOnly={onChange === undefined} />
 }
 
-const WIDGETS = { Text, Number, Slider }
+function History({ value, onChange }: { value: number, onChange: any }) {
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const width = 400
+  const height = 200
+
+  const values = useRef(new Array(100).fill(0))
+
+  const toX = (value: number) => (value / values.current.length) * width
+  const toY = (value: number) => (value + 1) / 2 * (height - 1)
+
+  useEffect(() => {
+    if (!canvas.current) return
+    const context = canvas.current.getContext("2d")!
+    values.current.shift()
+    values.current.push(value)
+    context.clearRect(0, 0, 400, 200)
+    context.beginPath()
+    context.moveTo(toX(0), toY(values.current[0]))
+    for (let i = 1; i < values.current.length; i++) {
+      context.lineTo(toX(i), toY(values.current[i]))
+    }
+    context.stroke()
+  }, [value])
+  
+  return <canvas ref={canvas} width={width} height={height} />
+}
+
+const WIDGETS = { Text, Number, Slider, History }
 
 interface Widget {
   type: keyof typeof WIDGETS
@@ -78,7 +105,7 @@ function App() {
       }
       return <label key={key}>
         {key}<br/>
-        <Widget key={key} value={value + ""} onChange={onChange} {...args} />
+        <Widget key={key} value={value} onChange={onChange} {...args} />
       </label>
     })}
   </div>

@@ -9,6 +9,7 @@ from .streams import stream, Stream
 
 Text = collections.namedtuple('Text', [])
 Number = collections.namedtuple('Number', [])
+History = collections.namedtuple('History', [])
 Slider = collections.namedtuple('Slider', ['min', 'max'], defaults=(-1, 1))
 
 Widget = collections.namedtuple('Widget', ['type', 'direction'])
@@ -24,8 +25,6 @@ class Widgets:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(websockets.serve(self.serve, "localhost", 8765))
         loop.run_forever()
-        # asyncio.create_task(main())
-        # asyncio.get_event_loop().run_forever()
 
     def play(self):
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -53,7 +52,7 @@ class Widgets:
         while True:
             try:
                 updates = json.loads(await websocket.recv())
-            except websockets.exceptions.ConnectionClosedOK:
+            except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):
                 return
             for key, value in updates.items():
                 self.sources[key] = value
@@ -80,8 +79,9 @@ class Widgets:
             yield x
     
     @stream
-    def get(self, key=None, type=Slider()):
-        key = key or repr(stream)
+    def get(self, key=None, type=None):
+        type = type or Slider()
+        key = key or repr(type) + " @ " + hex(id(type))
         self.widgets[key] = Widget(type, "source")
         # TODO: Avoid busy loop waiting for first change.
         # Instead, have sensible default values for inputs.
