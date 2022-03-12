@@ -10,6 +10,7 @@ from .streams import stream, Stream
 Text = collections.namedtuple('Text', [])
 Number = collections.namedtuple('Number', [])
 History = collections.namedtuple('History', [])
+Table = collections.namedtuple('Table', [])
 Slider = collections.namedtuple('Slider', ['min', 'max'], defaults=(-1, 1))
 
 Widget = collections.namedtuple('Widget', ['type', 'direction'])
@@ -70,18 +71,18 @@ class Widgets:
         print("Websocket connection: stop", file=sys.stderr)
 
     @stream
-    def log(self, stream, period=1, key=None, type=Slider()):
-        key = key or repr(stream)
+    def log(self, stream, key=None, type=Slider()):
+        key = key or f"{len(self.widgets)}: {__builtins__.type(stream).__name__}"
         self.widgets[key] = Widget(type, "sink")
-        for i, x in enumerate(stream):
-            if i % period == 0:
-                self.updates[key] = x
+        for x in stream:
+            self.updates[key] = x
             yield x
     
     @stream
     def get(self, key=None, type=None):
-        type = type or Slider()
-        key = key or repr(type) + " @ " + hex(id(type))
+        if type is None:
+            type = Slider()
+        key = key or f"{len(self.widgets)}: {repr(type)}"
         self.widgets[key] = Widget(type, "source")
         # TODO: Avoid busy loop waiting for first change.
         # Instead, have sensible default values for inputs.
