@@ -17,6 +17,7 @@ class Widgets:
     def __init__(self):
         self.updates = {}
         self.widgets = {}
+        self.sources = {}
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -54,8 +55,8 @@ class Widgets:
                 updates = json.loads(await websocket.recv())
             except websockets.exceptions.ConnectionClosedOK:
                 return
-            for key, value in updates:
-                self.sources[key].value = value
+            for key, value in updates.items():
+                self.sources[key] = value
 
     async def serve(self, websocket, path):
         print("Websocket connection: start", file=sys.stderr)
@@ -70,7 +71,7 @@ class Widgets:
         print("Websocket connection: stop", file=sys.stderr)
 
     @stream
-    def log(self, stream, period=1, key=None, type=Text()):
+    def log(self, stream, period=1, key=None, type=Slider()):
         key = key or repr(stream)
         self.widgets[key] = Widget(type, "sink")
         for i, x in enumerate(stream):
@@ -78,9 +79,20 @@ class Widgets:
                 self.updates[key] = x
             yield x
     
+    @stream
+    def get(self, key=None, type=Slider()):
+        key = key or repr(stream)
+        self.widgets[key] = Widget(type, "source")
+        # TODO: Avoid busy loop waiting for first change.
+        # Instead, have sensible default values for inputs.
+        while True:
+            if key in self.sources:
+                yield self.sources[key]
+    
     def clear(self):
         self.updates = {}
         self.widgets = {}
+        self.sources = {}
 
 # Unpredictable deletion, at least in PyPy.
 # class LogStreamIter:

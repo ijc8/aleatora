@@ -8,6 +8,7 @@
 import collections
 import itertools
 import operator
+import time
 
 
 def _make_stream_op(op, reversed=False):
@@ -195,8 +196,10 @@ class Stream(collections.abc.Iterable):
         for chunk in self:
             yield from chunk
 
-    def run(self):
+    def run(self, delay=None):
         for _ in self:
+            if delay:
+                time.sleep(delay)
             pass
 
     def split(self, n=2):

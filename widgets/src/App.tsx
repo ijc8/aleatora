@@ -10,7 +10,6 @@ window.onbeforeunload = () => {
 }
 
 function Text({ value, onChange }: { value: string, onChange?: (x: string) => void }) {
-  console.log("! Text !", value)
   return <input type="text" value={value ?? ""} onChange={e => onChange?.(e.target.value)} readOnly={onChange === undefined} />
 }
 
@@ -66,9 +65,20 @@ function App() {
   return <div className="App">
     {Object.entries(state).map(([key, { type, direction, args, value }]) => {
       const Widget = WIDGETS[type] as any
+      let onChange = undefined
+      if (direction === "source") {
+        onChange = (value: any) => {
+          setState(state => {
+            const newState = Object.assign({}, state)
+            newState[key].value = value
+            send({ [key]: value })
+            return newState
+          })
+        }
+      }
       return <label key={key}>
         {key}<br/>
-        <Widget key={key} value={value + ""} {...args} />
+        <Widget key={key} value={value + ""} onChange={onChange} {...args} />
       </label>
     })}
   </div>
