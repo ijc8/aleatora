@@ -5,22 +5,18 @@ import threading
 import sys
 import websockets
 
-from .streams import stream
+from .streams import stream, Stream
 
-# import psutil
-# @stream
-# def resource_usage():
-#     process = psutil.Process()
-#     while True:
-#         yield process.cpu_percent(), process.memory_info().rss/(1024**2)
+Text = collections.namedtuple('Text', [])
+Number = collections.namedtuple('Number', [])
+Slider = collections.namedtuple('Slider', ['min', 'max'], defaults=(-1, 1))
 
-Textbox = collections.namedtuple('Textbox', [])
-Slider = collections.namedtuple('Slider', ['min', 'max'])
+Widget = collections.namedtuple('Widget', ['type', 'direction'])
 
 class Widgets:
     def __init__(self):
         self.updates = {}
-        self.recv_streams = {}
+        self.widgets = {}
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -35,9 +31,20 @@ class Widgets:
         self.thread.start()
 
     async def send(self, websocket):
+        widgets = {}
         while True:
+            if self.widgets != widgets:
+                widgets = self.widgets.copy()
+                payload = {}
+                for k, widget in widgets.items():
+                    payload[k] = {
+                        "type": type(widget.type).__name__,
+                        "direction": widget.direction,
+                        "args": widget.type._asdict(),
+                    }
+                await websocket.send(json.dumps({"type": "widgets", "payload": payload}))
             if self.updates:
-                await websocket.send(json.dumps(self.updates))
+                await websocket.send(json.dumps({"type": "updates", "payload": self.updates}))
                 self.updates.clear()
             await asyncio.sleep(0.01)
     
@@ -48,12 +55,10 @@ class Widgets:
             except websockets.exceptions.ConnectionClosedOK:
                 return
             for key, value in updates:
-                self.recv_streams[key].value = value
+                self.sources[key].value = value
 
     async def serve(self, websocket, path):
         print("Websocket connection: start", file=sys.stderr)
-        # await asyncio.gather(self.send(websocket), self.recv(websocket))
-        # await websocket.recv()
         consumer_task = asyncio.create_task(self.recv(websocket))
         producer_task = asyncio.create_task(self.send(websocket))
         done, pending = await asyncio.wait(
@@ -65,9 +70,35 @@ class Widgets:
         print("Websocket connection: stop", file=sys.stderr)
 
     @stream
-    def log(self, stream, period=1, key=None, type=Textbox()):
+    def log(self, stream, period=1, key=None, type=Text()):
         key = key or repr(stream)
+        self.widgets[key] = Widget(type, "sink")
         for i, x in enumerate(stream):
             if i % period == 0:
                 self.updates[key] = x
             yield x
+    
+    def clear(self):
+        self.updates = {}
+        self.widgets = {}
+
+# Unpredictable deletion, at least in PyPy.
+# class LogStreamIter:
+#     def __init__(self, iter):
+#         self.iter = iter
+
+#     def __next__(self):
+#         return next(self.iter)
+    
+#     def __iter__(self):
+#         return self
+    
+#     def __del__(self):
+#         print("Bye!")
+
+# class LogStream(Stream):
+#     def __init__(self, stream):
+#         self.stream = stream
+
+#     def __iter__(self):
+#         return LogStreamIter(iter(self.stream))
