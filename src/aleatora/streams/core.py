@@ -17,7 +17,7 @@ def _make_stream_op(op, reversed=False):
             return self.map(lambda v: op(other, v))
         return fn
     def fn(self, other):
-        if isinstance(other, collections.Iterable):
+        if isinstance(other, collections.abc.Iterable):
             return self.zip(other).map(lambda p: op(*p))
         return self.map(lambda v: op(v, other))
     return fn
@@ -58,7 +58,7 @@ class Stream(collections.abc.Iterable):
     # Unlike *, /, etc., + and - keep going until *both* streams have ended.
     # This behavior matches an interpretation of emptiness as "zero": the additive identity and the multiplicative absorbing element.
     def __add__(self, other):
-        if isinstance(other, collections.Iterable):
+        if isinstance(other, collections.abc.Iterable):
             return MixStream((self, other))
         return self.map(lambda v: v + other)
 
