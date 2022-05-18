@@ -33,6 +33,7 @@ html {
   align-items: flex-start;
   font-family:'Roboto Mono', monospace;
   max-width: 500px;
+  background: white;
 }
 
 h1 {
