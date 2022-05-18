@@ -166,7 +166,7 @@ def mod(modulus):
         yield from range(modulus)
 
 def maybe_const(thing):
-    if isinstance(thing, collections.Iterable):
+    if isinstance(thing, collections.abc.Iterable):
         return thing
     return const(thing)
 
@@ -194,6 +194,17 @@ def tri(freqs, t=0):
     for freq in maybe_const(freqs):
         yield abs(t - 0.5)*4 - 1
         t = (t + freq/SAMPLE_RATE) % 1
+
+@stream
+def tbl(freqs, tables, phase=0):
+    for freq, table in zip(maybe_const(freqs), tables):
+        index = phase * len(table)
+        prev = int(index)
+        next = prev + 1
+        frac = index - prev
+        yield table[prev] * (1 - frac) + table[next % len(table)] * frac
+        phase += freq/SAMPLE_RATE
+        phase %= 1
 
 @stream
 def basic_envelope(length):
@@ -331,9 +342,9 @@ class Mixer:
             yield from out            # yield all the remaining output
     """
     def __init__(self, streams=[], fill=0):
+        self.iterators = []
         for stream in streams:
             self <= stream
-        self.iterators = []
         self.fill = fill
 
     def __le__(self, stream):
