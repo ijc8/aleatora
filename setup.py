@@ -26,9 +26,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
 # Dependencies for optional features
 speech = ["gtts", "streamp3~=0.1.7"]
 foxdot = ["FoxDotPatterns~=0.1.0"]
-plugins = ["popsicle~=0.8.0"]
+plugins = ["popsicle~=0.0.9"]
 soundfont = ["pyFluidSynth==1.3.0"]
-stk = ["cppyy~=2.1.0"]
+stk = ["cppyy~=2.3.1"]
 rivalium = ["ffmpeg-python~=0.2.0"]
 
 setuptools.setup(

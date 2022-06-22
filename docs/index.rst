@@ -51,6 +51,7 @@ Features
 - Networking integration: use TCP, UDP, OSC streams in your composition.
 - (Optional) Quickly express musical ideas using `FoxDot <https://foxdot.org/docs/pattern-basics/>`_ patterns and strings.
 - (Optional) TTS support via `Festival <http://festvox.org/festival/>`_ and `gTTS <https://pypi.org/project/gTTS/>`_.
+- (Optional) Integration with the `Synthesis ToolKit <https://ccrma.stanford.edu/software/stk/>` for signal processing and synthesis.
 - (Optional, Experimental) Support for plugins via `popsicle <https://github.com/kunitoki/popsicle>`_: load and run VST, AU, LADSPA plugins.
   
 Getting Started
@@ -93,8 +94,11 @@ Status
 
 Aleatora is early-stage software. There is some documentation (see the :ref:`modindex`), but the docs (like the project itself) are still a work in progress. Please try Aleatora, submit issues when you find broken things (or have questions, feature requests, etc.), but don't rely on it for live production systems or installations.
 
-Changes from version 0.1.0
---------------------------
+Changelog
+---------
+
+0.2.0
+#####
 
 The most significant change between Aleatora 0.1.0 and 0.2.0 is in the conception and implementation of streams. Aleatora 0.1.0 implemented streams in the sense of `SRFI-41 <https://srfi.schemers.org/srfi-41/srfi-41.html>`_: a lazy, recursive data structure. A stream was a function (with no arguments - a `thunk <https://en.wikipedia.org/wiki/Thunk>`_) that returned either a tuple ``(value: Any, rest_of_stream: Stream)`` or an instance of ``Return(value: any)`` indicating the end of the stream.
 
