@@ -325,9 +325,9 @@ def normalize(strm):
 class Mixer:
     """
     Supports dynamically connecting and disconnecting streams to output.
-    This enables a more imperative, ChucK-ish style.
+    This allows for a more imperative, ChucK-ish style.
 
-    Example:
+    Example::
 
         @stream
         def example():
