@@ -106,7 +106,7 @@ def AudioStream_getitem(self, index):
             convert_time(index.step)
         ))
     else:
-        super_getitem(self, convert_time(index))
+        return super_getitem(self, convert_time(index))
 
 Stream.__getitem__ = AudioStream_getitem
 

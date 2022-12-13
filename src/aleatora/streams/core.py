@@ -68,9 +68,10 @@ class Stream(collections.abc.Iterable):
     def __getitem__(self, index):
         if isinstance(index, int):
             # Open question: will this functionality (`stream[5]`) ever get used?
-            for i, value in zip(range(index), self):
+            i = -1
+            for i, value in zip(range(index + 1), self):
                 pass
-            if i < index - 1:
+            if i < index:
                 raise IndexError("Index out of range")
             return value
         elif isinstance(index, slice):
