@@ -65,8 +65,6 @@ def pattern_to_stream(patternish):
 # TODO: Handle additional patternish parameters like `root`.
 # (degree is included because it may contain PGroups that affect subdivision timing.)
 def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, sample=0):
-    if sus is None:
-        sus = dur
     degree = pattern_to_stream(degree)
     dur = pattern_to_stream(dur).cycle()
     sus = pattern_to_stream(sus).cycle()
@@ -82,7 +80,8 @@ def event_stream(degree, dur=1, sus=None, delay=0, amp=1, bpm=120, sample=0):
                 yield from _event_stream(pattern_to_stream(degree.data), const(dur), const(sus), const(delay), const(amp), const(bpm), pattern_to_stream(degree.meta[0]).cycle())
             elif isinstance(degree, PGroupPlus):
                 # Spread over `sus`.
-                yield from _event_stream(pattern_to_stream(degree.data), const(sus / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
+                _sus = dur if sus is None else sus
+                yield from _event_stream(pattern_to_stream(degree.data), const(_sus / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
             elif isinstance(degree, PGroupPrime):
                 # All of the other PGroupPrime subclasses spread over `dur`.
                 yield from _event_stream(pattern_to_stream(degree.data), const(dur / len(degree)), const(sus), const(delay), const(amp), const(bpm), const(sample))
@@ -116,9 +115,7 @@ def events_to_samples(event_stream):
 
 def beat(pattern, dur=0.5, sus=None, delay=0, amp=1, bpm=120, sample=0):
     if importError:
-        raise ImportError
-    if sus is None:
-        sus = dur
+        raise importError
     return events_to_samples(event_stream(pattern, dur, sus, delay, amp, bpm, sample))
 
 # TODO: can root, scale, oct be patterns?
