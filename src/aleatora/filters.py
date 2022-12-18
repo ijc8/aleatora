@@ -1,6 +1,5 @@
 from .streams import maybe_const, SAMPLE_RATE, stream
 
-import collections
 import math
 
 
@@ -9,7 +8,7 @@ import math
 # Seems unstable at 1/2 of Nyquist (1/4 of sampling rate)
 
 @stream
-def svf(stream, freq, q):
+def svf(stream, freq, q=1.0):
     assert(q >= 0.5)
     low = band = 0
     for x, f in zip(stream, maybe_const(freq)):
@@ -21,16 +20,16 @@ def svf(stream, freq, q):
         band += f1 * high
         yield (low, high, band)
 
-def lpf(stream, f, q):
+def lpf(stream, f, q=1.0):
     return svf(stream, f, q).map(lambda p: p[0])
 
-def hpf(stream, f, q):
+def hpf(stream, f, q=1.0):
     return svf(stream, f, q).map(lambda p: p[1])
 
-def bpf(stream, f, q):
+def bpf(stream, f, q=1.0):
     return svf(stream, f, q).map(lambda p: p[2])
 
-def notch(stream, f, q):
+def notch(stream, f, q=1.0):
     return svf(stream, f, q).map(lambda p: p[0] + p[1])
 
 @stream
