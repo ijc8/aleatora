@@ -13,7 +13,7 @@ from .core import FunctionStream, const, count, empty, stream, Stream, repeat
 
 # This is the default sample rate, but it may be modified by audio module to
 # match what the audio device supports.
-SAMPLE_RATE = 44100
+SAMPLE_RATE = 48000
 
 def convert_time(time):
     if isinstance(time, float):

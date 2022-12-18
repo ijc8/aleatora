@@ -175,18 +175,25 @@ def poly(monophonic_instrument=None, persist_internal=False):
 
 poly_instrument = poly(mono_instrument)
 
-# Takes [(pitch, duration)] and converts it to a Stream of Messages.
-# TODO: support velocity?
-# TODO: allow sequence to be a stream?
-def seq_to_events(sequence, bpm=60):
-    events = []
-    time = 0
-    for pitch, duration in sequence:
-        events.append((int(time), Message(type='note_on', note=pitch)))
-        time += duration * 60 / bpm * SAMPLE_RATE
-        events.append((int(time) - 1, Message(type='note_off')))
-    return events_in_time(events)
-
+# Convert stream of MIDI events into stream of notes (currently just dictionaries).
+@stream
+def events_to_notes(event_stream, rate=None):
+    if rate is None:
+        rate = SAMPLE_RATE
+    t = 0
+    ongoing = {}
+    for messages in event_stream:
+        for message in messages:
+            if message.type not in ('note_on', 'note_off'):
+                continue
+            pitch = int(message.note)
+            if message.type == 'note_on' and pitch not in ongoing:
+                ongoing[pitch] = (t, message.velocity)
+            elif message.type == 'note_off' and pitch in ongoing:
+                start, velocity = ongoing[pitch]
+                yield {"start": start, "end": t, "pitch": pitch, "velocity": velocity}
+                del ongoing[pitch]
+        t += 1/rate
 
 def sampler(mapping, fade=0.01):
     "Instrument that maps MIDI pitches to streams. Resamples to account for octave jumps."
