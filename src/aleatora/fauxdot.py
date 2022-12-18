@@ -144,6 +144,8 @@ def events_to_messages(event_stream, root=Root.default, scale=Scale.default, oct
             _, pitch = get_freq_and_midi(degree, oct, root, scale)
             if delay != 0:
                 delay *= 60/bpm
+            if sus is None:
+                sus = dur
             sus *= 60/bpm
             noteon = midi.Message(type='note_on', note=pitch, velocity=int(amp*127))
             noteoff = midi.Message(type='note_off', note=pitch)
