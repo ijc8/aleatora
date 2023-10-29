@@ -8,7 +8,7 @@ def convolve(strm, impulse_response, mode='same'):
         strm = strm >> silence[:size-1]
     if mode == 'valid':
         strm = iter(strm)
-        history = np.fromiter(strm, dtype=float, count=size)
+        history = np.fromiter(strm, dtype=np.float32, count=size)
     else:
         history = np.zeros(size)
     impulse_response = impulse_response[::-1]
