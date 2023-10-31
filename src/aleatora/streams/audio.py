@@ -381,7 +381,7 @@ class Mixer:
             if not iterators:
                 acc = fill
             yield acc
-    
+
     def __iter__(self):
         # TODO: Reduce duplication between this, __getitem__(),
         #       and MixStream.__iter__().

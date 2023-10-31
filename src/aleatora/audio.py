@@ -76,7 +76,7 @@ def setup(device=None, channels=1, input=False, **kwargs):
         _stream = sd.Stream(channels=channels, callback=play_record_callback, **kwargs)
     else:
         _stream = sd.OutputStream(channels=channels, callback=play_callback, **kwargs)
-    SAMPLE_RATE = _stream.samplerate
+    audio.SAMPLE_RATE = _stream.samplerate
     _stream.start()
     _channels = channels
 

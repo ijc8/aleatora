@@ -1,6 +1,6 @@
 "Music composition framework based on streams."
 
-__version__ = '0.2.1'
+__version__ = '0.2.2-dev'
 
 from .audio import input_stream, play, query_devices, run, setup, volume
 from .chord import chord
