@@ -250,10 +250,11 @@ class Plugin:
         # Unlike `scanAndAddFile`, this function tries to determine the current plugin format for us.
         app = juce.JUCEApplication.getInstance()
         app.pluginList.scanAndAddDragAndDroppedFiles(app.pluginManager, juce.StringArray(juce.String(path)), plugins)
+        if not plugins.size():
+            raise RuntimeError(f"No plugins found at {path}")
         self.plugin = plugins[0]
     
-    # TODO: When PyPy 3.8 comes out, make `self` and `stream` positional-only to avoid conflict with plugin params.
-    def __call__(self, stream=None, **plugin_params):
+    def __call__(self, stream=None, /, **plugin_params):
         return PluginInstance(self.plugin, stream, plugin_params, self.sample_rate, self.block_size, self.volume_threshold, self.instrument)
 
 def load(path, block_size=512, sample_rate=SAMPLE_RATE, volume_threshold=2e-6, instrument=False):
